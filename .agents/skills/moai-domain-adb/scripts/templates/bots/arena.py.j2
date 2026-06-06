@@ -1,0 +1,312 @@
+"""{{ game_name }} Arena Bot.
+
+Generated: {{ generated_at }}
+Template: {{ template_type }}
+"""
+
+{{ imports | join('\n') }}
+from adb_auto_player.games.afk_journey.base import AFKJourneyBase
+from adb_auto_player.games.afk_journey.gui_category import AFKJCategory
+
+
+class {{ class_name }}(AFKJourneyBase):
+    """{{ game_name }} Arena bot for PvP automation."""
+
+    @register_command(
+        name="{{ game_name }} Arena",
+        gui=GUIMetadata(
+            label="{{ game_name }} Arena",
+            category=AFKJCategory.GAME_MODES,
+        ),
+    )
+    def run_arena(self) -> None:
+        """Execute arena battles automation."""
+        logging.info("Starting {{ game_name }} Arena bot...")
+        self.start_up(device_streaming=False)
+
+        try:
+            self._enter_arena()
+        except GameTimeoutError:
+            logging.error("Failed to enter arena")
+            return
+
+        # Execute free attempts
+        attempts_completed = 0
+        max_attempts = 5
+
+        for attempt in range(max_attempts):
+            if self._check_no_attempts():
+                logging.info(f"Free attempts exhausted after {attempts_completed} battles")
+                break
+
+            if self._execute_arena_battle():
+                attempts_completed += 1
+                logging.info(f"Completed arena battle {attempts_completed}/{max_attempts}")
+            else:
+                logging.warning(f"Arena battle {attempt + 1} failed")
+                break
+
+        # Claim additional attempts if available
+        self._claim_bonus_attempts()
+
+        logging.info(f"{{ game_name }} Arena finished: {attempts_completed} battles completed")
+
+    # ===================================================================
+    # Navigation & Setup
+    # ===================================================================
+
+    def _enter_arena(self) -> None:
+        """Navigate to arena mode.
+
+        TODO: Customize navigation for your game:
+        - Navigate to PvP section
+        - Locate arena button
+        - Handle loading screens
+        """
+        logging.info("Entering arena...")
+        self.navigate_to_world()
+
+        # TODO: Replace with actual coordinates
+        self.tap(Point(460, 1830))  # Battle Modes button
+        sleep(2)
+
+        try:
+            arena_label = self.wait_for_template(
+                "arena/label.png",
+                timeout=self.MIN_TIMEOUT,
+                timeout_message="Failed to find arena button"
+            )
+            self.tap(arena_label)
+            sleep(2)
+        except GameTimeoutError as e:
+            logging.error(f"Arena navigation failed: {e}")
+            raise
+
+        # Handle any popup notices
+        self._dismiss_arena_notices()
+
+    def _dismiss_arena_notices(self) -> None:
+        """Dismiss weekly rewards and notices.
+
+        TODO: Customize popup handling for your game
+        """
+        logging.debug("Checking for arena notices...")
+
+        for _ in range(2):
+            try:
+                notice = self.wait_for_any_template(
+                    templates=["arena/weekly_rewards.png", "arena/weekly_notice.png"],
+                    timeout=self.MIN_TIMEOUT,
+                    timeout_message="No notices found"
+                )
+                # TODO: Replace with actual dismiss button coordinates
+                self.tap(Point(380, 1890))
+                sleep(2)
+            except GameTimeoutError:
+                break
+
+    # ===================================================================
+    # Battle Execution
+    # ===================================================================
+
+    def _execute_arena_battle(self) -> bool:
+        """Execute single arena battle.
+
+        Returns:
+            bool: True if battle completed successfully
+
+        TODO: Customize battle flow for your game
+        """
+        try:
+            # Select opponent
+            if not self._select_opponent():
+                return False
+
+            # Start battle
+            if not self._start_battle():
+                return False
+
+            # Wait for battle completion
+            if not self._wait_for_battle_end():
+                return False
+
+            # Handle results
+            self._handle_battle_results()
+
+            return True
+
+        except GameTimeoutError as e:
+            logging.error(f"Arena battle error: {e}")
+            return False
+
+    def _select_opponent(self) -> bool:
+        """Select arena opponent.
+
+        Returns:
+            bool: True if opponent selected
+
+        TODO: Implement opponent selection strategy:
+        - Choose weakest opponent
+        - Avoid specific teams
+        - Refresh opponent list
+        """
+        logging.debug("Selecting arena opponent...")
+
+        try:
+            # TODO: Replace with actual template and coordinates
+            challenge_btn = self.wait_for_any_template(
+                templates=["arena/challenge.png", "arena/continue.png"],
+                timeout=self.MIN_TIMEOUT,
+                timeout_message="Failed to find challenge button"
+            )
+            self.tap(challenge_btn)
+            sleep(2)
+
+            # Select opponent (customize selection logic)
+            # TODO: Add opponent analysis and selection
+            opponent = self.wait_for_template(
+                "arena/opponent.png",
+                timeout=self.MIN_TIMEOUT,
+                timeout_message="Failed to find opponent"
+            )
+            self.tap(opponent)
+            sleep(2)
+
+            return True
+
+        except GameTimeoutError:
+            return False
+
+    def _start_battle(self) -> bool:
+        """Start arena battle.
+
+        Returns:
+            bool: True if battle started
+
+        TODO: Customize battle start sequence
+        """
+        logging.debug("Starting arena battle...")
+
+        try:
+            battle_btn = self.wait_for_template(
+                "arena/battle.png",
+                timeout=self.MIN_TIMEOUT,
+                timeout_message="Failed to find battle button"
+            )
+            self.tap(battle_btn)
+            sleep(3)
+            return True
+
+        except GameTimeoutError:
+            return False
+
+    def _wait_for_battle_end(self) -> bool:
+        """Wait for battle to complete.
+
+        Returns:
+            bool: True if battle ended
+
+        TODO: Customize battle end detection
+        """
+        logging.debug("Waiting for battle to end...")
+
+        try:
+            # Wait for victory/defeat screen
+            result = self.wait_for_any_template(
+                templates=["battle/victory_rewards.png", "battle/result.png"],
+                timeout=120,  # 2 minute max battle time
+                timeout_message="Battle did not end in time"
+            )
+            return result is not None
+
+        except GameTimeoutError:
+            return False
+
+    def _handle_battle_results(self) -> None:
+        """Handle post-battle screens.
+
+        TODO: Customize results handling:
+        - Collect rewards
+        - Skip animations
+        - Return to arena lobby
+        """
+        logging.debug("Handling battle results...")
+
+        # Skip results animation
+        for _ in range(3):
+            self.tap(Point(540, 1900))  # Skip button
+            sleep(1)
+
+        # Dismiss reward screens
+        try:
+            done_btn = self.wait_for_template(
+                "arena/done.png",
+                timeout=self.MIN_TIMEOUT,
+                timeout_message="Done button not found"
+            )
+            self.tap(done_btn)
+            sleep(2)
+        except GameTimeoutError:
+            pass
+
+    # ===================================================================
+    # Attempts Management
+    # ===================================================================
+
+    def _check_no_attempts(self) -> bool:
+        """Check if arena attempts are exhausted.
+
+        Returns:
+            bool: True if no attempts remaining
+
+        TODO: Customize attempt detection for your game
+        """
+        return self.game_find_template_match("arena/no_attempts.png")
+
+    def _claim_bonus_attempts(self) -> None:
+        """Claim bonus arena attempts if available.
+
+        TODO: Customize bonus attempt logic:
+        - Check for available purchases
+        - Use tickets/currency
+        - Handle purchase confirmation
+        """
+        logging.debug("Checking for bonus attempts...")
+
+        for _ in range(2):
+            if not self._claim_single_bonus_attempt():
+                break
+
+            # Execute battle with bonus attempt
+            if not self._execute_arena_battle():
+                break
+
+    def _claim_single_bonus_attempt(self) -> bool:
+        """Claim single bonus attempt.
+
+        Returns:
+            bool: True if bonus claimed
+
+        TODO: Implement bonus claim logic
+        """
+        try:
+            buy_btn = self.wait_for_template(
+                "arena/buy_free.png",
+                timeout=self.MIN_TIMEOUT,
+                timeout_message="No free bonus attempts"
+            )
+            self.tap(buy_btn)
+            sleep(2)
+
+            # Confirm purchase
+            confirm_btn = self.wait_for_template(
+                "confirm_text.png",
+                timeout=self.MIN_TIMEOUT
+            )
+            self.tap(confirm_btn)
+            sleep(2)
+
+            return True
+
+        except GameTimeoutError:
+            return False

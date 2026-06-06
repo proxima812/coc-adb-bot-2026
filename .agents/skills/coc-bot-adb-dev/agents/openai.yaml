@@ -1,0 +1,4 @@
+interface:
+  display_name: "COC Bot ADB Dev"
+  short_description: "Develop and debug the local Clash of Clans ADB bot."
+  default_prompt: "Use this skill when changing, debugging, validating, or tuning the COC-bot-adb project."

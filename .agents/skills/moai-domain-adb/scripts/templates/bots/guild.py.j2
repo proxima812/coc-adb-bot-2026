@@ -1,0 +1,406 @@
+"""{{ game_name }} Guild Bot.
+
+Generated: {{ generated_at }}
+Template: {{ template_type }}
+"""
+
+{{ imports | join('\n') }}
+from adb_auto_player.games.afk_journey.base import AFKJourneyBase
+from adb_auto_player.games.afk_journey.gui_category import AFKJCategory
+
+
+class {{ class_name }}(AFKJourneyBase):
+    """{{ game_name }} Guild activities automation bot."""
+
+    @register_command(
+        name="{{ game_name }} Guild",
+        gui=GUIMetadata(
+            label="{{ game_name }} Guild",
+            category=AFKJCategory.GAME_MODES,
+        ),
+    )
+    def run_guild_activities(self) -> None:
+        """Execute guild activities automation."""
+        logging.info("Starting {{ game_name }} Guild bot...")
+        self.start_up(device_streaming=False)
+
+        try:
+            self._enter_guild()
+            activities_completed = self._complete_guild_activities()
+
+            logging.info(
+                f"{{ game_name }} Guild completed: {activities_completed} activities done"
+            )
+
+        except GameTimeoutError as e:
+            logging.error(f"Guild error: {e}")
+            return
+
+    # ===================================================================
+    # Guild Navigation
+    # ===================================================================
+
+    def _enter_guild(self) -> None:
+        """Navigate to guild menu.
+
+        TODO: Customize guild navigation:
+        - Open guild menu
+        - Check guild membership
+        - Handle guild invites
+        """
+        logging.info("Entering guild menu...")
+        self.navigate_to_world()
+
+        # TODO: Replace with actual coordinates
+        self.tap(Point(50, 1950))  # Guild button
+        sleep(2)
+
+        try:
+            guild_menu = self.wait_for_template(
+                "guild/label.png",
+                timeout=self.MIN_TIMEOUT,
+                timeout_message="Guild menu not found"
+            )
+            self.tap(guild_menu)
+            sleep(2)
+
+        except GameTimeoutError as e:
+            logging.error(f"Guild navigation failed: {e}")
+            raise
+
+    # ===================================================================
+    # Activity Completion
+    # ===================================================================
+
+    def _complete_guild_activities(self) -> int:
+        """Complete all available guild activities.
+
+        Returns:
+            int: Number of activities completed
+
+        TODO: Customize activity priorities and execution
+        """
+        activities_done = 0
+
+        # Guild activities to complete
+        if self._complete_guild_donations():
+            activities_done += 1
+
+        if self._complete_guild_boss():
+            activities_done += 1
+
+        if self._complete_guild_quests():
+            activities_done += 1
+
+        if self._claim_guild_rewards():
+            activities_done += 1
+
+        return activities_done
+
+    def _complete_guild_donations(self) -> bool:
+        """Complete guild donations.
+
+        Returns:
+            bool: True if donations completed
+
+        TODO: Implement donation logic:
+        - Select donation type
+        - Use free donations
+        - Paid donation settings
+        """
+        logging.info("Completing guild donations...")
+
+        try:
+            # Navigate to donation screen
+            donate_btn = self.wait_for_template(
+                "guild/donate_button.png",
+                timeout=self.MIN_TIMEOUT,
+                timeout_message="Donate button not found"
+            )
+            self.tap(donate_btn)
+            sleep(2)
+
+            # Complete free donations
+            donations_made = 0
+            max_donations = 3
+
+            for _ in range(max_donations):
+                if self._make_donation("free"):
+                    donations_made += 1
+                else:
+                    break
+
+            logging.info(f"Completed {donations_made} guild donations")
+
+            # Return to guild menu
+            self._return_to_guild_menu()
+
+            return donations_made > 0
+
+        except GameTimeoutError:
+            return False
+
+    def _make_donation(self, donation_type: str) -> bool:
+        """Make single donation.
+
+        Args:
+            donation_type: Type of donation (free, gold, premium)
+
+        Returns:
+            bool: True if donation made
+
+        TODO: Implement donation types
+        """
+        try:
+            # Find donation button based on type
+            donate = self.wait_for_template(
+                f"guild/donate_{donation_type}.png",
+                timeout=self.MIN_TIMEOUT
+            )
+            self.tap(donate)
+            sleep(2)
+
+            # Confirm donation
+            confirm = self.wait_for_template(
+                "confirm_text.png",
+                timeout=self.MIN_TIMEOUT
+            )
+            self.tap(confirm)
+            sleep(2)
+
+            return True
+
+        except GameTimeoutError:
+            return False
+
+    # ===================================================================
+    # Guild Boss
+    # ===================================================================
+
+    def _complete_guild_boss(self) -> bool:
+        """Complete guild boss attempts.
+
+        Returns:
+            bool: True if boss attempts completed
+
+        TODO: Implement guild boss:
+        - Check available attempts
+        - Select best team
+        - Execute battles
+        - Track damage dealt
+        """
+        logging.info("Completing guild boss...")
+
+        try:
+            # Navigate to guild boss
+            boss_btn = self.wait_for_template(
+                "guild/boss_button.png",
+                timeout=self.MIN_TIMEOUT,
+                timeout_message="Guild boss not found"
+            )
+            self.tap(boss_btn)
+            sleep(2)
+
+            # Check available attempts
+            attempts_used = 0
+            max_attempts = 3
+
+            for attempt in range(max_attempts):
+                if not self._check_boss_attempts_available():
+                    logging.info(f"Guild boss attempts exhausted: {attempts_used}")
+                    break
+
+                if self._fight_guild_boss():
+                    attempts_used += 1
+                else:
+                    break
+
+            # Return to guild menu
+            self._return_to_guild_menu()
+
+            return attempts_used > 0
+
+        except GameTimeoutError:
+            return False
+
+    def _check_boss_attempts_available(self) -> bool:
+        """Check if guild boss attempts available.
+
+        Returns:
+            bool: True if attempts available
+
+        TODO: Implement attempt detection
+        """
+        return not self.game_find_template_match("guild/no_attempts.png")
+
+    def _fight_guild_boss(self) -> bool:
+        """Execute single guild boss battle.
+
+        Returns:
+            bool: True if battle completed
+
+        TODO: Implement boss battle:
+        - Team optimization
+        - Battle execution
+        - Damage tracking
+        """
+        try:
+            # Start boss battle
+            battle_btn = self.wait_for_template(
+                "battle/battle.png",
+                timeout=self.MIN_TIMEOUT
+            )
+            self.tap(battle_btn)
+            sleep(2)
+
+            # Wait for battle completion
+            result = self.wait_for_template(
+                "battle/result.png",
+                timeout=120,
+                timeout_message="Boss battle timeout"
+            )
+
+            # Dismiss results
+            for _ in range(3):
+                self.tap(Point(540, 1900))
+                sleep(1)
+
+            return result is not None
+
+        except GameTimeoutError:
+            return False
+
+    # ===================================================================
+    # Guild Quests
+    # ===================================================================
+
+    def _complete_guild_quests(self) -> bool:
+        """Complete guild quests.
+
+        Returns:
+            bool: True if quests completed
+
+        TODO: Implement guild quests:
+        - Daily guild quests
+        - Weekly guild missions
+        - Quest rewards collection
+        """
+        logging.info("Completing guild quests...")
+
+        try:
+            # Navigate to guild quests
+            quest_btn = self.wait_for_template(
+                "guild/quest_button.png",
+                timeout=self.MIN_TIMEOUT
+            )
+            self.tap(quest_btn)
+            sleep(2)
+
+            # Complete available quests
+            quests_done = 0
+
+            for _ in range(5):
+                if self._complete_single_guild_quest():
+                    quests_done += 1
+                else:
+                    break
+
+            # Return to guild menu
+            self._return_to_guild_menu()
+
+            return quests_done > 0
+
+        except GameTimeoutError:
+            return False
+
+    def _complete_single_guild_quest(self) -> bool:
+        """Complete single guild quest.
+
+        Returns:
+            bool: True if quest completed
+
+        TODO: Implement quest completion
+        """
+        try:
+            # Find claimable quest
+            claim_btn = self.wait_for_template(
+                "guild/claim_quest.png",
+                timeout=self.MIN_TIMEOUT
+            )
+            self.tap(claim_btn)
+            sleep(2)
+
+            # Dismiss reward
+            self.tap(Point(540, 1900))
+            sleep(1)
+
+            return True
+
+        except GameTimeoutError:
+            return False
+
+    # ===================================================================
+    # Rewards Collection
+    # ===================================================================
+
+    def _claim_guild_rewards(self) -> bool:
+        """Claim guild rewards and bonuses.
+
+        Returns:
+            bool: True if rewards claimed
+
+        TODO: Implement reward collection:
+        - Guild shop purchases
+        - Attendance rewards
+        - Milestone rewards
+        """
+        logging.info("Claiming guild rewards...")
+
+        try:
+            # Navigate to rewards
+            reward_btn = self.wait_for_template(
+                "guild/reward_button.png",
+                timeout=self.MIN_TIMEOUT
+            )
+            self.tap(reward_btn)
+            sleep(2)
+
+            # Claim all rewards
+            claim_all = self.wait_for_template(
+                "guild/claim_all.png",
+                timeout=self.MIN_TIMEOUT
+            )
+            self.tap(claim_all)
+            sleep(2)
+
+            # Dismiss reward screens
+            for _ in range(3):
+                self.tap(Point(540, 1900))
+                sleep(1)
+
+            return True
+
+        except GameTimeoutError:
+            return False
+
+    # ===================================================================
+    # Helper Methods
+    # ===================================================================
+
+    def _return_to_guild_menu(self) -> None:
+        """Return to main guild menu.
+
+        TODO: Customize back navigation
+        """
+        logging.debug("Returning to guild menu...")
+
+        for _ in range(2):
+            try:
+                back_btn = self.wait_for_template(
+                    "back.png",
+                    timeout=self.MIN_TIMEOUT
+                )
+                self.tap(back_btn)
+                sleep(1)
+            except GameTimeoutError:
+                break

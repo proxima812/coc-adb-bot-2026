@@ -1,0 +1,156 @@
+{
+    "keyboardMappings": [
+        {
+            "class": "ClassKeyboardPoint",
+            "data": {
+                "key": 83,
+                "secondKey": 0,
+                "point": {
+                    "x": 9606,
+                    "y": 7222
+                },
+                "type": 0,
+                "downDuration": 0,
+                "upDuration": 0,
+                "downDurationEx": 0,
+                "upDurationEx": 0,
+                "description": "",
+                "moreDescription": "",
+                "hintVisible": true,
+                "hintOffset": {
+                    "x": 0,
+                    "y": 0
+                },
+                "extraData": ""
+            }
+        },
+        {
+            "class": "ClassKeyboardPoint",
+            "data": {
+                "key": 67,
+                "secondKey": 0,
+                "point": {
+                    "x": 6450,
+                    "y": 2100
+                },
+                "type": 0,
+                "downDuration": 0,
+                "upDuration": 0,
+                "downDurationEx": 0,
+                "upDurationEx": 0,
+                "description": "",
+                "moreDescription": "",
+                "hintVisible": true,
+                "hintOffset": {
+                    "x": 0,
+                    "y": 0
+                },
+                "extraData": ""
+            }
+        },
+        {
+            "class": "ClassKeyboardPoint",
+            "data": {
+                "key": 89,
+                "secondKey": 0,
+                "point": {
+                    "x": 6800,
+                    "y": 7722
+                },
+                "type": 0,
+                "downDuration": 0,
+                "upDuration": 0,
+                "downDurationEx": 0,
+                "upDurationEx": 0,
+                "description": "",
+                "moreDescription": "",
+                "hintVisible": true,
+                "hintOffset": {
+                    "x": 0,
+                    "y": 0
+                },
+                "extraData": ""
+            }
+        },
+        {
+            "class": "ClassKeyboardPoint",
+            "data": {
+                "key": 80,
+                "secondKey": 0,
+                "point": {
+                    "x": 6806,
+                    "y": 6122
+                },
+                "type": 0,
+                "downDuration": 0,
+                "upDuration": 0,
+                "downDurationEx": 0,
+                "upDurationEx": 0,
+                "description": "",
+                "moreDescription": "",
+                "hintVisible": true,
+                "hintOffset": {
+                    "x": 0,
+                    "y": 0
+                },
+                "extraData": ""
+            }
+        },
+        {
+            "class": "ClassKeyboardPoint",
+            "data": {
+                "key": 79,
+                "secondKey": 0,
+                "point": {
+                    "x": 6800,
+                    "y": 9311
+                },
+                "type": 0,
+                "downDuration": 0,
+                "upDuration": 0,
+                "downDurationEx": 0,
+                "upDurationEx": 0,
+                "description": "",
+                "moreDescription": "",
+                "hintVisible": true,
+                "hintOffset": {
+                    "x": 0,
+                    "y": 0
+                },
+                "extraData": ""
+            }
+        }
+    ],
+    "configInfo": {
+        "version": 0,
+        "versionMessage": "",
+        "packageNameType": 0,
+        "packageNamePattern": "com.supercell.clashofclans",
+        "resolutionType": 1,
+        "resolutionPattern": {
+            "width": 1600,
+            "height": 900
+        },
+        "priority": 0,
+        "search": ""
+    },
+    "keyboardConfig": {
+        "mouseCenter": {
+            "x": 5000,
+            "y": 5000
+        },
+        "mouseScrollType": 0,
+        "discType": 0,
+        "advertising": false,
+        "advertiseDuration": 5000,
+        "advertiseText": "",
+        "cancelPoint": {
+            "x": 0,
+            "y": 0
+        },
+        "cancelKey": 0,
+        "cancelMode": 0,
+        "cursor": "lolCursor",
+        "extraData": ""
+    }
+}

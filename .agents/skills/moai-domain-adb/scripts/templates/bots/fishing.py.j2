@@ -1,0 +1,396 @@
+"""{{ game_name }} Fishing Bot.
+
+Generated: {{ generated_at }}
+Template: {{ template_type }}
+"""
+
+{{ imports | join('\n') }}
+from adb_auto_player.games.afk_journey.base import AFKJourneyBase
+from adb_auto_player.games.afk_journey.gui_category import AFKJCategory
+
+
+class {{ class_name }}(AFKJourneyBase):
+    """{{ game_name }} Fishing minigame automation bot."""
+
+    # Fishing state constants
+    HOOK_READY = "hook_ready"
+    HOOK_CAST = "hook_cast"
+    FISH_HOOKED = "fish_hooked"
+    REELING_IN = "reeling_in"
+    CATCH_COMPLETE = "catch_complete"
+
+    @register_command(
+        name="{{ game_name }} Fishing",
+        gui=GUIMetadata(
+            label="{{ game_name }} Fishing",
+            category=AFKJCategory.GAME_MODES,
+        ),
+    )
+    def run_fishing(self) -> None:
+        """Execute fishing minigame automation."""
+        logging.info("Starting {{ game_name }} Fishing bot...")
+        self.start_up(device_streaming=False)
+
+        try:
+            self._navigate_to_fishing()
+            catches = self._fishing_loop()
+
+            logging.info(
+                f"{{ game_name }} Fishing completed: {catches} fish caught"
+            )
+
+        except GameTimeoutError as e:
+            logging.error(f"Fishing error: {e}")
+            return
+
+    # ===================================================================
+    # Navigation
+    # ===================================================================
+
+    def _navigate_to_fishing(self) -> None:
+        """Navigate to fishing location.
+
+        TODO: Customize navigation to fishing spot:
+        - Open world map
+        - Navigate to fishing area
+        - Enter fishing minigame
+        """
+        logging.info("Navigating to fishing location...")
+        self.navigate_to_world()
+
+        # TODO: Replace with actual navigation coordinates
+        # Example: Open map
+        self.tap(Point(950, 50))  # Map button
+        sleep(2)
+
+        try:
+            # Find fishing spot on map
+            fishing_spot = self.wait_for_template(
+                "fishing/fishing_spot.png",
+                timeout=self.MIN_TIMEOUT,
+                timeout_message="Fishing spot not found"
+            )
+            self.tap(fishing_spot)
+            sleep(2)
+
+            # Enter fishing area
+            enter_btn = self.wait_for_template(
+                "fishing/enter_button.png",
+                timeout=self.MIN_TIMEOUT,
+                timeout_message="Enter button not found"
+            )
+            self.tap(enter_btn)
+            sleep(3)
+
+        except GameTimeoutError as e:
+            logging.error(f"Fishing navigation failed: {e}")
+            raise
+
+    # ===================================================================
+    # Fishing Loop
+    # ===================================================================
+
+    def _fishing_loop(self) -> int:
+        """Execute main fishing loop.
+
+        Returns:
+            int: Number of fish caught
+
+        TODO: Customize fishing loop parameters:
+        - Maximum attempts
+        - Bait usage
+        - Target fish types
+        """
+        logging.info("Starting fishing loop...")
+        fish_caught = 0
+        max_attempts = 20
+
+        for attempt in range(max_attempts):
+            if not self._check_bait_available():
+                logging.info("No bait remaining")
+                break
+
+            if self._execute_single_catch():
+                fish_caught += 1
+                logging.info(f"Caught fish {fish_caught}/{max_attempts}")
+            else:
+                logging.debug(f"Fishing attempt {attempt + 1} failed")
+
+            sleep(2)
+
+        return fish_caught
+
+    def _check_bait_available(self) -> bool:
+        """Check if bait is available.
+
+        Returns:
+            bool: True if bait available
+
+        TODO: Implement bait detection:
+        - Check bait counter
+        - Auto-purchase bait if enabled
+        """
+        # TODO: Add bait detection logic
+        return True
+
+    def _execute_single_catch(self) -> bool:
+        """Execute single fishing attempt.
+
+        Returns:
+            bool: True if fish caught
+
+        TODO: Customize fishing mechanics:
+        - Cast timing
+        - Hook detection
+        - Reeling pattern
+        """
+        try:
+            # Cast fishing rod
+            if not self._cast_rod():
+                return False
+
+            # Wait for fish to bite
+            if not self._wait_for_bite():
+                return False
+
+            # Hook the fish
+            if not self._hook_fish():
+                return False
+
+            # Reel in the fish
+            if not self._reel_in():
+                return False
+
+            # Collect the catch
+            self._collect_catch()
+
+            return True
+
+        except GameTimeoutError:
+            return False
+
+    # ===================================================================
+    # Fishing Actions
+    # ===================================================================
+
+    def _cast_rod(self) -> bool:
+        """Cast fishing rod.
+
+        Returns:
+            bool: True if rod cast successfully
+
+        TODO: Implement cast mechanics:
+        - Find cast button
+        - Power selection
+        - Direction selection
+        """
+        logging.debug("Casting fishing rod...")
+
+        try:
+            # Wait for rod to be ready
+            rod_ready = self.wait_for_template(
+                "fishing/fishing_rod.png",
+                timeout=self.MIN_TIMEOUT,
+                timeout_message="Fishing rod not ready"
+            )
+
+            # Tap to cast
+            self.tap(rod_ready)
+            sleep(1)
+
+            # Optional: Hold for power (game-specific)
+            # TODO: Customize power selection
+            # Example: self.long_press(rod_ready, duration=1.5)
+
+            return True
+
+        except GameTimeoutError:
+            return False
+
+    def _wait_for_bite(self) -> bool:
+        """Wait for fish to bite.
+
+        Returns:
+            bool: True if fish bit
+
+        TODO: Implement bite detection:
+        - Visual indicators (ripples, exclamation)
+        - Sound detection
+        - Timing parameters
+        """
+        logging.debug("Waiting for fish to bite...")
+
+        try:
+            # Wait for bite indicator
+            bite_indicator = self.wait_for_any_template(
+                templates=[
+                    "fishing/hook_fish.png",
+                    "fishing/bite_indicator.png",
+                ],
+                timeout=30,  # 30 second max wait
+                timeout_message="No fish bit"
+            )
+
+            return bite_indicator is not None
+
+        except GameTimeoutError:
+            logging.debug("Fish did not bite")
+            return False
+
+    def _hook_fish(self) -> bool:
+        """Hook the fish quickly.
+
+        Returns:
+            bool: True if fish hooked
+
+        TODO: Implement hook timing:
+        - Quick tap timing
+        - Perfect hook bonus
+        - Hook failure handling
+        """
+        logging.debug("Hooking fish...")
+
+        # Quick tap to hook (timing is critical)
+        # TODO: Adjust timing based on game mechanics
+        self.tap(Point(540, 1200))  # Hook button
+        sleep(0.2)
+
+        try:
+            # Verify fish is hooked
+            hooked = self.wait_for_template(
+                "fishing/hooked_indicator.png",
+                timeout=self.MIN_TIMEOUT,
+                timeout_message="Failed to hook fish"
+            )
+
+            return hooked is not None
+
+        except GameTimeoutError:
+            return False
+
+    def _reel_in(self) -> bool:
+        """Reel in the fish.
+
+        Returns:
+            bool: True if successfully reeled in
+
+        TODO: Implement reeling mechanics:
+        - Tap rhythm
+        - Swipe patterns
+        - Tension management
+        """
+        logging.debug("Reeling in fish...")
+
+        try:
+            # Reeling pattern (game-specific)
+            # TODO: Customize reeling pattern
+            # Option 1: Rapid taps
+            for _ in range(10):
+                self.tap(Point(540, 1200))  # Reel button
+                sleep(0.1)
+
+            # Option 2: Swipe pattern (uncomment if needed)
+            # for _ in range(5):
+            #     self.swipe(Point(540, 1400), Point(540, 800), duration=0.3)
+            #     sleep(0.2)
+
+            # Wait for catch completion
+            catch_complete = self.wait_for_template(
+                "fishing/catch_complete.png",
+                timeout=self.MIN_TIMEOUT,
+                timeout_message="Failed to reel in fish"
+            )
+
+            return catch_complete is not None
+
+        except GameTimeoutError:
+            return False
+
+    def _collect_catch(self) -> None:
+        """Collect the caught fish.
+
+        TODO: Implement catch collection:
+        - Tap to collect
+        - Handle rare fish animations
+        - Dismiss result screen
+        """
+        logging.debug("Collecting catch...")
+
+        # Tap to dismiss catch result
+        for _ in range(3):
+            self.tap(Point(540, 1900))
+            sleep(0.5)
+
+        # Check for rare fish notification
+        try:
+            rare_fish = self.game_find_template_match(
+                "fishing/rare_catch.png"
+            )
+            if rare_fish:
+                logging.info("Caught rare fish!")
+                self.tap(Point(540, 1900))
+                sleep(1)
+        except GameTimeoutError:
+            pass
+
+    # ===================================================================
+    # Fishing Management
+    # ===================================================================
+
+    def _use_bait(self, bait_type: str = "standard") -> bool:
+        """Use fishing bait.
+
+        Args:
+            bait_type: Type of bait to use
+
+        Returns:
+            bool: True if bait used
+
+        TODO: Implement bait selection:
+        - Different bait types
+        - Auto-purchase bait
+        - Bait effects
+        """
+        logging.debug(f"Using {bait_type} bait...")
+
+        try:
+            # Open bait menu
+            bait_btn = self.wait_for_template(
+                "fishing/bait_button.png",
+                timeout=self.MIN_TIMEOUT
+            )
+            self.tap(bait_btn)
+            sleep(1)
+
+            # Select bait type
+            # TODO: Customize bait selection
+            bait = self.wait_for_template(
+                f"fishing/{bait_type}_bait.png",
+                timeout=self.MIN_TIMEOUT
+            )
+            self.tap(bait)
+            sleep(1)
+
+            # Confirm
+            confirm = self.wait_for_template(
+                "confirm_text.png",
+                timeout=self.MIN_TIMEOUT
+            )
+            self.tap(confirm)
+            sleep(1)
+
+            return True
+
+        except GameTimeoutError:
+            return False
+
+    def _check_fishing_level(self) -> int:
+        """Check current fishing level.
+
+        Returns:
+            int: Current fishing level
+
+        TODO: Implement level detection via OCR
+        """
+        # TODO: Add OCR level detection
+        return 1

@@ -1,0 +1,415 @@
+"""{{ game_name }} Farming Bot.
+
+Generated: {{ generated_at }}
+Template: {{ template_type }}
+"""
+
+{{ imports | join('\n') }}
+from adb_auto_player.games.afk_journey.base import AFKJourneyBase
+from adb_auto_player.games.afk_journey.gui_category import AFKJCategory
+
+
+class {{ class_name }}(AFKJourneyBase):
+    """{{ game_name }} Resource farming automation bot."""
+
+    @register_command(
+        name="{{ game_name }} Farming",
+        gui=GUIMetadata(
+            label="{{ game_name }} Farming",
+            category=AFKJCategory.GAME_MODES,
+        ),
+    )
+    def run_farming(self) -> None:
+        """Execute resource farming automation."""
+        logging.info("Starting {{ game_name }} Farming bot...")
+        self.start_up(device_streaming=False)
+
+        try:
+            self._enter_farming_mode()
+            resources = self._farming_loop()
+
+            logging.info(
+                f"{{ game_name }} Farming completed: {resources} runs completed"
+            )
+
+        except GameTimeoutError as e:
+            logging.error(f"Farming error: {e}")
+            return
+
+    # ===================================================================
+    # Farming Setup
+    # ===================================================================
+
+    def _enter_farming_mode(self) -> None:
+        """Navigate to farming location.
+
+        TODO: Customize farming entry:
+        - Select farming stage
+        - Choose resource type
+        - Set auto-repeat options
+        """
+        logging.info("Entering farming mode...")
+        self.navigate_to_world()
+
+        # TODO: Replace with actual coordinates
+        self.tap(Point(460, 1830))  # Battle Modes
+        sleep(2)
+
+        try:
+            # Select farming stage
+            farming_btn = self.wait_for_template(
+                "farming/label.png",
+                timeout=self.MIN_TIMEOUT,
+                timeout_message="Farming mode not found"
+            )
+            self.tap(farming_btn)
+            sleep(2)
+
+            # Choose resource type
+            self._select_resource_type()
+
+            # Select farming stage
+            self._select_farming_stage()
+
+        except GameTimeoutError as e:
+            logging.error(f"Farming entry failed: {e}")
+            raise
+
+    def _select_resource_type(self) -> None:
+        """Select type of resource to farm.
+
+        TODO: Implement resource selection:
+        - Gold/Currency
+        - Experience
+        - Equipment materials
+        - Upgrade materials
+        """
+        logging.debug("Selecting resource type...")
+
+        # TODO: Add resource type selection
+        # Example: self.tap(Point(200, 800))  # Gold farming
+        pass
+
+    def _select_farming_stage(self) -> None:
+        """Select specific farming stage.
+
+        TODO: Implement stage selection:
+        - Efficiency analysis
+        - Auto-select best stage
+        - Check stage requirements
+        """
+        logging.debug("Selecting farming stage...")
+
+        # TODO: Add stage selection logic
+        # Example: self.tap(Point(540, 1200))  # Stage 1-5
+        pass
+
+    # ===================================================================
+    # Farming Loop
+    # ===================================================================
+
+    def _farming_loop(self) -> int:
+        """Execute main farming loop.
+
+        Returns:
+            int: Number of farming runs completed
+
+        TODO: Customize farming parameters:
+        - Maximum runs
+        - Energy management
+        - Auto-refill settings
+        """
+        logging.info("Starting farming loop...")
+        runs_completed = 0
+        max_runs = 50
+
+        for run in range(max_runs):
+            if not self._check_energy_available():
+                logging.info("Energy depleted")
+
+                # Try to refill energy
+                if not self._refill_energy():
+                    break
+
+            if self._execute_farming_run():
+                runs_completed += 1
+                logging.info(f"Completed run {runs_completed}/{max_runs}")
+            else:
+                logging.warning(f"Run {run + 1} failed")
+                break
+
+            # Small delay between runs
+            sleep(2)
+
+        return runs_completed
+
+    def _check_energy_available(self) -> bool:
+        """Check if energy is available for farming.
+
+        Returns:
+            bool: True if energy available
+
+        TODO: Implement energy detection:
+        - OCR energy counter
+        - Visual indicators
+        - Energy threshold
+        """
+        # TODO: Add energy detection
+        # Example: return not self.game_find_template_match("farming/no_energy.png")
+        return True
+
+    def _refill_energy(self) -> bool:
+        """Refill energy using items or currency.
+
+        Returns:
+            bool: True if energy refilled
+
+        TODO: Implement energy refill:
+        - Use energy items
+        - Purchase with currency
+        - Auto-refill settings
+        """
+        logging.debug("Attempting to refill energy...")
+
+        try:
+            # Find refill button
+            refill_btn = self.game_find_template_match("farming/refill_button.png")
+
+            if not refill_btn:
+                return False
+
+            self.tap(refill_btn)
+            sleep(2)
+
+            # Confirm refill
+            confirm = self.wait_for_template(
+                "confirm_text.png",
+                timeout=self.MIN_TIMEOUT
+            )
+            self.tap(confirm)
+            sleep(2)
+
+            return True
+
+        except GameTimeoutError:
+            return False
+
+    # ===================================================================
+    # Farming Execution
+    # ===================================================================
+
+    def _execute_farming_run(self) -> bool:
+        """Execute single farming run.
+
+        Returns:
+            bool: True if run completed
+
+        TODO: Customize farming execution:
+        - Battle setup
+        - Auto-battle settings
+        - Sweep/Quick battle options
+        """
+        try:
+            # Check for quick clear/sweep option
+            if self._can_quick_clear():
+                return self._execute_quick_clear()
+
+            # Execute normal battle
+            return self._execute_normal_battle()
+
+        except GameTimeoutError:
+            return False
+
+    def _can_quick_clear(self) -> bool:
+        """Check if quick clear/sweep is available.
+
+        Returns:
+            bool: True if quick clear available
+
+        TODO: Implement quick clear detection:
+        - Sweep tickets
+        - 3-star completion
+        - Quick battle option
+        """
+        return self.game_find_template_match("farming/sweep_button.png")
+
+    def _execute_quick_clear(self) -> bool:
+        """Execute quick clear/sweep.
+
+        Returns:
+            bool: True if quick clear completed
+
+        TODO: Implement quick clear:
+        - Use sweep tickets
+        - Collect rewards
+        - Handle bulk clear
+        """
+        logging.debug("Executing quick clear...")
+
+        try:
+            # Tap sweep button
+            sweep_btn = self.wait_for_template(
+                "farming/sweep_button.png",
+                timeout=self.MIN_TIMEOUT,
+                timeout_message="Sweep button not found"
+            )
+            self.tap(sweep_btn)
+            sleep(2)
+
+            # Confirm sweep
+            confirm = self.wait_for_template(
+                "confirm_text.png",
+                timeout=self.MIN_TIMEOUT
+            )
+            self.tap(confirm)
+            sleep(2)
+
+            # Collect rewards
+            self._collect_farming_rewards()
+
+            return True
+
+        except GameTimeoutError:
+            return False
+
+    def _execute_normal_battle(self) -> bool:
+        """Execute normal farming battle.
+
+        Returns:
+            bool: True if battle completed
+
+        TODO: Implement normal battle:
+        - Start battle
+        - Enable auto-battle
+        - Wait for completion
+        """
+        logging.debug("Executing normal battle...")
+
+        try:
+            # Start battle
+            battle_btn = self.wait_for_template(
+                "battle/battle.png",
+                timeout=self.MIN_TIMEOUT,
+                timeout_message="Battle button not found"
+            )
+            self.tap(battle_btn)
+            sleep(2)
+
+            # Enable auto-battle if available
+            self._enable_auto_battle()
+
+            # Wait for battle completion
+            result = self.wait_for_template(
+                "battle/victory_rewards.png",
+                timeout=120,
+                timeout_message="Battle timeout"
+            )
+
+            if not result:
+                return False
+
+            # Collect rewards
+            self._collect_farming_rewards()
+
+            return True
+
+        except GameTimeoutError:
+            return False
+
+    def _enable_auto_battle(self) -> None:
+        """Enable auto-battle mode.
+
+        TODO: Implement auto-battle:
+        - Find auto button
+        - Set battle speed
+        - Configure skill usage
+        """
+        try:
+            auto_btn = self.game_find_template_match("battle/auto_button.png")
+            if auto_btn:
+                self.tap(auto_btn)
+                sleep(0.5)
+        except GameTimeoutError:
+            pass
+
+    # ===================================================================
+    # Rewards Collection
+    # ===================================================================
+
+    def _collect_farming_rewards(self) -> None:
+        """Collect farming battle rewards.
+
+        TODO: Implement reward collection:
+        - Skip animations
+        - Collect all rewards
+        - Handle rare drops
+        """
+        logging.debug("Collecting farming rewards...")
+
+        # Tap multiple times to skip animations
+        for _ in range(5):
+            self.tap(Point(540, 1900))
+            sleep(0.5)
+
+        # Check for rare drop notification
+        try:
+            rare_drop = self.game_find_template_match("farming/rare_drop.png")
+            if rare_drop:
+                logging.info("Rare drop obtained!")
+                self.tap(Point(540, 1900))
+                sleep(1)
+        except GameTimeoutError:
+            pass
+
+    # ===================================================================
+    # Statistics & Optimization
+    # ===================================================================
+
+    def _calculate_efficiency(self, runs: int, duration: int) -> float:
+        """Calculate farming efficiency.
+
+        Args:
+            runs: Number of runs completed
+            duration: Total time in seconds
+
+        Returns:
+            float: Runs per minute
+
+        TODO: Implement efficiency tracking:
+        - Time per run
+        - Resource per run
+        - Energy efficiency
+        """
+        if duration == 0:
+            return 0.0
+
+        return (runs / duration) * 60
+
+    def _optimize_formation(self) -> bool:
+        """Optimize team formation for farming.
+
+        Returns:
+            bool: True if formation optimized
+
+        TODO: Implement formation optimization:
+        - Speed-focused teams
+        - Auto-win setups
+        - Power requirements
+        """
+        logging.debug("Optimizing farming formation...")
+
+        # TODO: Add formation optimization
+        return True
+
+    def _check_inventory_full(self) -> bool:
+        """Check if inventory is full.
+
+        Returns:
+            bool: True if inventory full
+
+        TODO: Implement inventory check:
+        - Detect full inventory warning
+        - Auto-sell/salvage items
+        - Inventory management
+        """
+        return self.game_find_template_match("farming/inventory_full.png")

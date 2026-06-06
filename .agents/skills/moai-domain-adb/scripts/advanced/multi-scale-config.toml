@@ -1,0 +1,209 @@
+# Multi-Scale Template Matching Configuration
+#
+# This configuration file defines scales, thresholds, and resolution profiles
+# for density-independent UI detection across different device types.
+#
+# Usage:
+#   config = tomllib.load(open('multi-scale-config.toml', 'rb'))
+#   matcher = MultiScaleMatcher(
+#       scales=config['scales']['factors'],
+#       threshold=config['matching']['threshold']
+#   )
+
+# ============================================================================
+# GLOBAL SCALES
+# ============================================================================
+[scales]
+# Enable multi-scale matching globally
+enabled = true
+
+# Scale factors to generate for image pyramids
+# Range: 0.5 to 2.0 (values outside this range will be rejected)
+# Default: [0.8, 0.9, 1.0, 1.1, 1.2]
+factors = [0.8, 0.9, 1.0, 1.1, 1.2]
+
+# Enable pyramid caching for performance
+cache_enabled = true
+
+# Maximum number of pyramids to keep in memory
+# Each pyramid contains 5 scaled versions of the template
+# Memory usage: ~5-10MB per cached pyramid (for typical 100x100 templates)
+max_cache_size = 50
+
+
+# ============================================================================
+# MATCHING PARAMETERS
+# ============================================================================
+[matching]
+# Confidence threshold for match acceptance (0.0 to 1.0)
+# Values:
+#   0.9+  = Very strict (only perfect matches)
+#   0.75+ = Recommended (good balance)
+#   0.6+  = Lenient (more false positives)
+threshold = 0.7
+
+# Template matching method
+# Options: "TM_CCOEFF_NORMED", "TM_SQDIFF_NORMED", "TM_CCORR_NORMED"
+# Recommended: TM_CCOEFF_NORMED (most robust)
+method = "TM_CCOEFF_NORMED"
+
+# Timeout for matching operation (milliseconds)
+# If matching takes longer, operation is aborted
+timeout_ms = 500
+
+
+# ============================================================================
+# RESOLUTION PROFILES
+# ============================================================================
+# Device-specific scale configurations optimized for common resolutions
+
+[resolution_profiles.mobile_720p]
+# 720p smartphones (5.0-5.5 inch, ~269 ppi)
+# Examples: iPhone SE, Pixel 4a, OnePlus Nord
+# Scale optimization: Focus on 0.9-1.1x range
+scales = [0.9, 1.0, 1.1]
+threshold = 0.72
+description = "720p smartphones (5.0-5.5 inch)"
+
+[resolution_profiles.mobile_1080p]
+# 1080p smartphones (5.5-6.2 inch, ~401 ppi)
+# Examples: iPhone 14, Pixel 6, Samsung Galaxy S21
+# Scale optimization: Medium range coverage
+scales = [0.8, 0.9, 1.0, 1.1]
+threshold = 0.71
+description = "1080p smartphones (5.5-6.2 inch)"
+
+[resolution_profiles.mobile_1440p]
+# 1440p smartphones (5.8-6.5 inch, ~513 ppi)
+# Examples: Galaxy S22 Ultra, Pixel 7 Pro
+# Scale optimization: Extra precision needed
+scales = [0.75, 0.85, 0.95, 1.05, 1.15]
+threshold = 0.73
+description = "1440p high-DPI smartphones"
+
+[resolution_profiles.tablet_1440p]
+# 10-inch tablets at 1440p
+# Examples: iPad Pro 10.9, Samsung Galaxy Tab S7
+# Scale optimization: Wide range for scaling variations
+scales = [0.7, 0.8, 0.9, 1.0, 1.1, 1.2]
+threshold = 0.70
+description = "10-inch tablets at 1440p"
+
+[resolution_profiles.tablet_2560p]
+# 12.9-inch tablets with very high resolution
+# Examples: iPad Pro 12.9 (6th gen), Samsung Galaxy Tab S8 Ultra
+# Scale optimization: Full range for maximum flexibility
+scales = [0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3]
+threshold = 0.72
+description = "12.9-inch ultra-high-res tablets"
+
+
+# ============================================================================
+# TEMPLATE GROUPS
+# ============================================================================
+# Define custom scales per template type (optional override)
+
+[templates.buttons]
+# UI buttons typically scale uniformly
+scales = [0.8, 0.9, 1.0, 1.1, 1.2]
+threshold = 0.75
+description = "Action buttons, dialog buttons"
+
+[templates.icons]
+# Small icons benefit from tighter scale range
+scales = [0.9, 1.0, 1.1]
+threshold = 0.80
+description = "Status icons, toolbar icons"
+
+[templates.text]
+# Text regions very sensitive to scale
+scales = [0.95, 0.98, 1.0, 1.02, 1.05]
+threshold = 0.85
+description = "Text labels, status text"
+
+
+# ============================================================================
+# PERFORMANCE TUNING
+# ============================================================================
+[performance]
+# Number of CPU threads for parallel matching (0 = auto-detect)
+threads = 0
+
+# Enable GPU acceleration if available
+gpu_acceleration = false
+
+# Cache pyramid generation results
+pyramid_cache = true
+
+# Pre-load commonly used templates
+preload_templates = []  # Example: ["button", "icon_home", "status_bar"]
+
+
+# ============================================================================
+# FALLBACK CHAIN CONFIGURATION
+# ============================================================================
+[fallback]
+# Enable multi-scale matching (primary method)
+enable_multiscale = true
+
+# Enable single-scale matching (secondary fallback)
+enable_single_scale = true
+
+# Enable feature matching (final fallback)
+# WARNING: Slower than template matching, use as last resort
+enable_feature_matching = false
+
+# Feature matching method: "ORB" or "SIFT"
+# ORB: Lightweight, fast (default)
+# SIFT: More robust but requires opencv-contrib-python
+feature_method = "ORB"
+
+
+# ============================================================================
+# LOGGING & DEBUGGING
+# ============================================================================
+[logging]
+# Log level: "DEBUG", "INFO", "WARNING", "ERROR"
+level = "INFO"
+
+# Log performance metrics
+log_performance = false
+
+# Log cache hit rates
+log_cache_stats = false
+
+# Save debug visualization on match failure
+save_debug_on_failure = false
+
+# Debug output directory
+debug_dir = "./debug_images"
+
+
+# ============================================================================
+# EXAMPLE PYTHON USAGE
+# ============================================================================
+#
+# import tomllib
+# from pathlib import Path
+# from adb_template_multiresolution import MultiScaleMatcher, ConfigLoader
+#
+# # Load configuration
+# config_path = Path("multi-scale-config.toml")
+# with open(config_path, "rb") as f:
+#     config = tomllib.load(f)
+#
+# # Load default or custom profile
+# profile_config = config["resolution_profiles"]["mobile_1080p"]
+#
+# # Create matcher with profile
+# matcher = MultiScaleMatcher(
+#     scales=profile_config["scales"],
+#     threshold=profile_config["threshold"]
+# )
+#
+# # Validate configuration
+# try:
+#     validated = ConfigLoader.load_from_dict(profile_config)
+#     print(f"Using scales: {validated['scales']}")
+# except ValueError as e:
+#     print(f"Configuration error: {e}")

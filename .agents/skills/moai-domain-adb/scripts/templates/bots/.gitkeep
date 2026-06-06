@@ -1,0 +1,5 @@
+# ADB Bot Templates
+
+This directory contains Jinja2 templates for bot generation.
+
+Templates are automatically loaded by adb_bot_generator.py.

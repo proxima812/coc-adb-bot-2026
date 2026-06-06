@@ -1,0 +1,364 @@
+"""{{ game_name }} Dungeon Bot.
+
+Generated: {{ generated_at }}
+Template: {{ template_type }}
+"""
+
+{{ imports | join('\n') }}
+from adb_auto_player.games.afk_journey.base import AFKJourneyBase
+from adb_auto_player.games.afk_journey.gui_category import AFKJCategory
+
+
+class {{ class_name }}(AFKJourneyBase):
+    """{{ game_name }} Dungeon crawler automation bot."""
+
+    @register_command(
+        name="{{ game_name }} Dungeon",
+        gui=GUIMetadata(
+            label="{{ game_name }} Dungeon",
+            category=AFKJCategory.GAME_MODES,
+        ),
+    )
+    def run_dungeon(self) -> None:
+        """Execute dungeon automation."""
+        logging.info("Starting {{ game_name }} Dungeon bot...")
+        self.start_up(device_streaming=False)
+
+        try:
+            self._enter_dungeon()
+            floors_cleared = self._dungeon_loop()
+
+            logging.info(
+                f"{{ game_name }} Dungeon completed: {floors_cleared} floors cleared"
+            )
+
+        except GameTimeoutError as e:
+            logging.error(f"Dungeon error: {e}")
+            return
+
+    # ===================================================================
+    # Dungeon Entry
+    # ===================================================================
+
+    def _enter_dungeon(self) -> None:
+        """Navigate to dungeon entrance.
+
+        TODO: Customize dungeon entry:
+        - Select dungeon difficulty
+        - Check entry requirements
+        - Handle key/ticket consumption
+        """
+        logging.info("Entering dungeon...")
+        self.navigate_to_world()
+
+        # TODO: Replace with actual coordinates
+        self.tap(Point(460, 1830))  # Battle Modes
+        sleep(2)
+
+        try:
+            dungeon_btn = self.wait_for_template(
+                "dungeon/label.png",
+                timeout=self.MIN_TIMEOUT,
+                timeout_message="Dungeon not found"
+            )
+            self.tap(dungeon_btn)
+            sleep(2)
+
+            # Select difficulty
+            self._select_difficulty()
+
+            # Enter dungeon
+            enter_btn = self.wait_for_template(
+                "dungeon/enter.png",
+                timeout=self.MIN_TIMEOUT,
+                timeout_message="Enter button not found"
+            )
+            self.tap(enter_btn)
+            sleep(3)
+
+        except GameTimeoutError as e:
+            logging.error(f"Dungeon entry failed: {e}")
+            raise
+
+    def _select_difficulty(self) -> None:
+        """Select dungeon difficulty.
+
+        TODO: Implement difficulty selection:
+        - Normal/Hard/Hell modes
+        - Auto-select highest available
+        - Check team power requirements
+        """
+        logging.debug("Selecting dungeon difficulty...")
+
+        # TODO: Add difficulty selection logic
+        # Example: self.tap(Point(540, 1000))  # Normal difficulty
+        pass
+
+    # ===================================================================
+    # Dungeon Progression
+    # ===================================================================
+
+    def _dungeon_loop(self) -> int:
+        """Execute dungeon floor progression.
+
+        Returns:
+            int: Number of floors cleared
+
+        TODO: Customize dungeon loop:
+        - Floor limit
+        - Auto-exit conditions
+        - Boss detection
+        """
+        logging.info("Starting dungeon progression...")
+        floors_cleared = 0
+        max_floors = 10
+
+        for floor in range(max_floors):
+            logging.info(f"Floor {floor + 1}/{max_floors}")
+
+            if not self._clear_floor():
+                logging.info(f"Failed to clear floor {floor + 1}")
+                break
+
+            floors_cleared += 1
+
+            # Check if reached boss or exit
+            if self._check_boss_floor() or self._check_exit_available():
+                logging.info("Reached final floor or exit point")
+                break
+
+        return floors_cleared
+
+    def _clear_floor(self) -> bool:
+        """Clear current dungeon floor.
+
+        Returns:
+            bool: True if floor cleared
+
+        TODO: Implement floor clearing:
+        - Navigate through rooms
+        - Battle enemies
+        - Collect treasures
+        - Handle traps/puzzles
+        """
+        try:
+            # Move to next room
+            if not self._move_to_next_room():
+                return False
+
+            # Battle enemies
+            if not self._clear_room_enemies():
+                return False
+
+            # Collect treasure
+            self._collect_treasure()
+
+            # Check for floor completion
+            return self._check_floor_complete()
+
+        except GameTimeoutError:
+            return False
+
+    def _move_to_next_room(self) -> bool:
+        """Navigate to next room in dungeon.
+
+        Returns:
+            bool: True if moved successfully
+
+        TODO: Implement room navigation:
+        - Detect available paths
+        - Choose optimal path
+        - Handle locked doors
+        """
+        logging.debug("Moving to next room...")
+
+        try:
+            # Find next room indicator
+            next_room = self.wait_for_template(
+                "dungeon/next_room.png",
+                timeout=self.MIN_TIMEOUT,
+                timeout_message="Next room not found"
+            )
+            self.tap(next_room)
+            sleep(2)
+
+            return True
+
+        except GameTimeoutError:
+            return False
+
+    def _clear_room_enemies(self) -> bool:
+        """Battle and clear room enemies.
+
+        Returns:
+            bool: True if enemies cleared
+
+        TODO: Implement enemy battle:
+        - Detect enemy presence
+        - Execute battle
+        - Handle multiple enemy waves
+        """
+        logging.debug("Clearing room enemies...")
+
+        try:
+            # Check for enemies
+            enemy = self.game_find_template_match("dungeon/enemy.png")
+
+            if not enemy:
+                logging.debug("No enemies in room")
+                return True
+
+            # Start battle
+            battle_btn = self.wait_for_template(
+                "battle/battle.png",
+                timeout=self.MIN_TIMEOUT,
+                timeout_message="Battle button not found"
+            )
+            self.tap(battle_btn)
+            sleep(2)
+
+            # Wait for battle completion
+            result = self.wait_for_template(
+                "battle/victory_rewards.png",
+                timeout=120,
+                timeout_message="Battle timeout"
+            )
+
+            # Dismiss results
+            for _ in range(3):
+                self.tap(Point(540, 1900))
+                sleep(1)
+
+            return result is not None
+
+        except GameTimeoutError:
+            return False
+
+    # ===================================================================
+    # Treasure & Rewards
+    # ===================================================================
+
+    def _collect_treasure(self) -> None:
+        """Collect treasure chest in room.
+
+        TODO: Implement treasure collection:
+        - Detect treasure chests
+        - Handle different chest types
+        - Manage inventory space
+        """
+        logging.debug("Collecting treasure...")
+
+        try:
+            # Find treasure chest
+            chest = self.game_find_template_match("dungeon/chest.png")
+
+            if chest:
+                self.tap(chest)
+                sleep(2)
+
+                # Open chest
+                open_btn = self.wait_for_template(
+                    "dungeon/open_chest.png",
+                    timeout=self.MIN_TIMEOUT
+                )
+                self.tap(open_btn)
+                sleep(2)
+
+                # Dismiss rewards
+                self.tap(Point(540, 1900))
+                sleep(1)
+
+        except GameTimeoutError:
+            pass
+
+    def _check_floor_complete(self) -> bool:
+        """Check if current floor is complete.
+
+        Returns:
+            bool: True if floor complete
+
+        TODO: Implement floor completion detection
+        """
+        return self.game_find_template_match("dungeon/floor_complete.png")
+
+    def _check_boss_floor(self) -> bool:
+        """Check if current floor is boss floor.
+
+        Returns:
+            bool: True if boss floor
+
+        TODO: Implement boss floor detection
+        """
+        return self.game_find_template_match("dungeon/boss_indicator.png")
+
+    def _check_exit_available(self) -> bool:
+        """Check if dungeon exit is available.
+
+        Returns:
+            bool: True if exit available
+
+        TODO: Implement exit detection
+        """
+        return self.game_find_template_match("dungeon/exit_door.png")
+
+    # ===================================================================
+    # Boss Battle
+    # ===================================================================
+
+    def _fight_boss(self) -> bool:
+        """Fight dungeon boss.
+
+        Returns:
+            bool: True if boss defeated
+
+        TODO: Implement boss battle:
+        - Boss-specific mechanics
+        - Extended timeout
+        - Special rewards handling
+        """
+        logging.info("Fighting boss...")
+
+        try:
+            # Enter boss room
+            boss_door = self.wait_for_template(
+                "dungeon/boss_door.png",
+                timeout=self.MIN_TIMEOUT,
+                timeout_message="Boss door not found"
+            )
+            self.tap(boss_door)
+            sleep(3)
+
+            # Start boss battle
+            battle_btn = self.wait_for_template(
+                "battle/battle.png",
+                timeout=self.MIN_TIMEOUT
+            )
+            self.tap(battle_btn)
+            sleep(2)
+
+            # Wait for boss battle completion (longer timeout)
+            result = self.wait_for_template(
+                "battle/victory_rewards.png",
+                timeout=180,  # 3 minutes for boss
+                timeout_message="Boss battle timeout"
+            )
+
+            # Handle boss rewards
+            if result:
+                self._collect_boss_rewards()
+
+            return result is not None
+
+        except GameTimeoutError:
+            return False
+
+    def _collect_boss_rewards(self) -> None:
+        """Collect boss battle rewards.
+
+        TODO: Implement boss reward collection
+        """
+        logging.info("Collecting boss rewards...")
+
+        for _ in range(5):
+            self.tap(Point(540, 1900))
+            sleep(1)

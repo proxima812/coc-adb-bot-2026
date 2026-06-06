@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local operator config and secrets
+config.json
+*.local.json
+.env
+.env.*
+!.env.example
+
+# Runtime logs and generated screenshots
+logs/*
+!logs/.gitkeep
+!logs/calibration/
+logs/calibration/*
+!logs/calibration/.gitkeep
+!logs/screenshots/
+logs/screenshots/*
+!logs/screenshots/.gitkeep
+*.log
+
+# Generated artifacts
+*.tmp
+*.temp
+*.bak
+*.swp
+Thumbs.db
+desktop.ini
+
+# IDE/editor
+.idea/
+.vscode/
+
+# Agent/private state
+.agents/**/*.token
+.agents/**/*.secret
+.agents/**/credentials*
+.agents/**/.env

@@ -1,0 +1,332 @@
+"""{{ game_name }} Daily Quest Bot.
+
+Generated: {{ generated_at }}
+Template: {{ template_type }}
+"""
+
+{{ imports | join('\n') }}
+from adb_auto_player.games.afk_journey.base import AFKJourneyBase
+from adb_auto_player.games.afk_journey.gui_category import AFKJCategory
+
+
+class {{ class_name }}(AFKJourneyBase):
+    """{{ game_name }} Daily Quest automation bot."""
+
+    @register_command(
+        name="{{ game_name }} Daily Quests",
+        gui=GUIMetadata(
+            label="{{ game_name }} Dailies",
+            category=AFKJCategory.DAILIES,
+        ),
+    )
+    def run_daily_quests(self) -> None:
+        """Execute daily quest automation."""
+        logging.info("Starting {{ game_name }} Daily Quests bot...")
+        self.start_up(device_streaming=False)
+
+        try:
+            self._open_quest_menu()
+            quests_completed = self._complete_all_quests()
+            self._claim_daily_rewards()
+
+            logging.info(
+                f"{{ game_name }} Daily Quests completed: {quests_completed} quests"
+            )
+
+        except GameTimeoutError as e:
+            logging.error(f"Daily quest error: {e}")
+            return
+
+    # ===================================================================
+    # Quest Menu Navigation
+    # ===================================================================
+
+    def _open_quest_menu(self) -> None:
+        """Navigate to quest/mission menu.
+
+        TODO: Customize quest menu navigation:
+        - Open main menu
+        - Navigate to quests tab
+        - Handle loading screens
+        """
+        logging.info("Opening quest menu...")
+        self.navigate_to_world()
+
+        # TODO: Replace with actual menu coordinates
+        # Example: Open hamburger menu
+        self.tap(Point(50, 50))  # Menu button
+        sleep(2)
+
+        try:
+            quest_btn = self.wait_for_template(
+                "hamburger/quests.png",
+                timeout=self.MIN_TIMEOUT,
+                timeout_message="Failed to find quest menu"
+            )
+            self.tap(quest_btn)
+            sleep(2)
+        except GameTimeoutError as e:
+            logging.error(f"Quest menu navigation failed: {e}")
+            raise
+
+    # ===================================================================
+    # Quest Completion
+    # ===================================================================
+
+    def _complete_all_quests(self) -> int:
+        """Complete all available daily quests.
+
+        Returns:
+            int: Number of quests completed
+
+        TODO: Customize quest detection and completion:
+        - Detect available quests
+        - Execute quest objectives
+        - Handle quest types (battle, collect, etc.)
+        """
+        logging.info("Completing daily quests...")
+        quests_completed = 0
+
+        # Define quest types to complete
+        quest_types = [
+            "battle_quest",
+            "collect_quest",
+            "explore_quest",
+            "social_quest",
+        ]
+
+        for quest_type in quest_types:
+            if self._complete_quest_type(quest_type):
+                quests_completed += 1
+
+        return quests_completed
+
+    def _complete_quest_type(self, quest_type: str) -> bool:
+        """Complete specific quest type.
+
+        Args:
+            quest_type: Type of quest to complete
+
+        Returns:
+            bool: True if quest completed
+
+        TODO: Implement quest type handlers:
+        - Battle quests: Execute battles
+        - Collect quests: Collect resources
+        - Explore quests: Visit locations
+        - Social quests: Friend interactions
+        """
+        logging.debug(f"Attempting to complete {quest_type}...")
+
+        try:
+            # Check if quest is available
+            quest_indicator = self.game_find_template_match(
+                f"quests/{quest_type}_available.png"
+            )
+
+            if not quest_indicator:
+                logging.debug(f"Quest {quest_type} not available")
+                return False
+
+            # Click quest to view details
+            self.tap(quest_indicator)
+            sleep(2)
+
+            # Execute quest objective
+            if self._execute_quest_objective(quest_type):
+                # Claim quest reward
+                return self._claim_quest_reward()
+
+            return False
+
+        except GameTimeoutError:
+            return False
+
+    def _execute_quest_objective(self, quest_type: str) -> bool:
+        """Execute quest objective based on type.
+
+        Args:
+            quest_type: Type of quest
+
+        Returns:
+            bool: True if objective completed
+
+        TODO: Implement objective handlers for each quest type
+        """
+        logging.debug(f"Executing {quest_type} objective...")
+
+        if quest_type == "battle_quest":
+            return self._do_battle_quest()
+        elif quest_type == "collect_quest":
+            return self._do_collect_quest()
+        elif quest_type == "explore_quest":
+            return self._do_explore_quest()
+        elif quest_type == "social_quest":
+            return self._do_social_quest()
+
+        return False
+
+    def _do_battle_quest(self) -> bool:
+        """Execute battle quest objective.
+
+        Returns:
+            bool: True if battle quest completed
+
+        TODO: Implement battle quest logic:
+        - Navigate to battle location
+        - Execute required battles
+        - Return to quest menu
+        """
+        logging.debug("Executing battle quest...")
+
+        try:
+            # Find "Go To" button
+            go_btn = self.wait_for_template(
+                "quests/go_button.png",
+                timeout=self.MIN_TIMEOUT,
+                timeout_message="Go button not found"
+            )
+            self.tap(go_btn)
+            sleep(3)
+
+            # Execute battle
+            # TODO: Add battle execution logic
+            battle_btn = self.wait_for_template(
+                "battle/battle.png",
+                timeout=self.MIN_TIMEOUT
+            )
+            self.tap(battle_btn)
+            sleep(2)
+
+            # Wait for battle completion
+            self.wait_for_template(
+                "battle/victory_rewards.png",
+                timeout=120,
+                timeout_message="Battle timeout"
+            )
+
+            # Return to quest menu
+            self._return_to_quest_menu()
+
+            return True
+
+        except GameTimeoutError:
+            return False
+
+    def _do_collect_quest(self) -> bool:
+        """Execute collect quest objective.
+
+        Returns:
+            bool: True if collect quest completed
+
+        TODO: Implement collection logic
+        """
+        logging.debug("Executing collect quest...")
+        # TODO: Add collection logic
+        return True
+
+    def _do_explore_quest(self) -> bool:
+        """Execute explore quest objective.
+
+        Returns:
+            bool: True if explore quest completed
+
+        TODO: Implement exploration logic
+        """
+        logging.debug("Executing explore quest...")
+        # TODO: Add exploration logic
+        return True
+
+    def _do_social_quest(self) -> bool:
+        """Execute social quest objective.
+
+        Returns:
+            bool: True if social quest completed
+
+        TODO: Implement social interaction logic
+        """
+        logging.debug("Executing social quest...")
+        # TODO: Add social logic
+        return True
+
+    # ===================================================================
+    # Reward Collection
+    # ===================================================================
+
+    def _claim_quest_reward(self) -> bool:
+        """Claim quest completion reward.
+
+        Returns:
+            bool: True if reward claimed
+
+        TODO: Customize reward claim logic
+        """
+        logging.debug("Claiming quest reward...")
+
+        try:
+            claim_btn = self.wait_for_template(
+                "quests/claim_button.png",
+                timeout=self.MIN_TIMEOUT,
+                timeout_message="Claim button not found"
+            )
+            self.tap(claim_btn)
+            sleep(2)
+
+            # Dismiss reward popup
+            self.tap(Point(540, 1900))
+            sleep(1)
+
+            return True
+
+        except GameTimeoutError:
+            return False
+
+    def _claim_daily_rewards(self) -> None:
+        """Claim additional daily rewards.
+
+        TODO: Implement bonus reward collection:
+        - Daily login rewards
+        - Milestone rewards
+        - Achievement rewards
+        """
+        logging.info("Claiming daily rewards...")
+
+        # Check for reward chest
+        try:
+            reward_chest = self.game_find_template_match(
+                "quests/reward_chest.png"
+            )
+
+            if reward_chest:
+                self.tap(reward_chest)
+                sleep(2)
+
+                # Claim all rewards
+                claim_all = self.wait_for_template(
+                    "quests/claim_all.png",
+                    timeout=self.MIN_TIMEOUT
+                )
+                self.tap(claim_all)
+                sleep(2)
+
+        except GameTimeoutError:
+            logging.debug("No daily rewards available")
+
+    def _return_to_quest_menu(self) -> None:
+        """Return to quest menu after quest activity.
+
+        TODO: Customize return navigation
+        """
+        logging.debug("Returning to quest menu...")
+
+        # Tap back button multiple times
+        for _ in range(3):
+            try:
+                back_btn = self.wait_for_template(
+                    "back.png",
+                    timeout=self.MIN_TIMEOUT
+                )
+                self.tap(back_btn)
+                sleep(1)
+            except GameTimeoutError:
+                break

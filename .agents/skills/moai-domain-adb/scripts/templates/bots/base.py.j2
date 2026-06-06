@@ -1,0 +1,119 @@
+"""{{ game_name }} Bot - Base Template.
+
+Generated: {{ generated_at }}
+Template: {{ template_type }}
+"""
+
+{{ imports | join('\n') }}
+from adb_auto_player.games.afk_journey.base import AFKJourneyBase
+from adb_auto_player.games.afk_journey.gui_category import AFKJCategory
+
+
+class {{ class_name }}(AFKJourneyBase):
+    """{{ game_name }} bot mixin for automated gameplay."""
+
+    @register_command(
+        name="{{ game_name }}",
+        gui=GUIMetadata(
+            label="{{ game_name }}",
+            category=AFKJCategory.GAME_MODES,
+        ),
+    )
+    def run_{{ module_name }}(self) -> None:
+        """Execute {{ game_name }} automation.
+
+        This is the main entry point for the {{ game_name }} bot.
+        Customize this method to implement your game-specific logic.
+        """
+        logging.info("Starting {{ game_name }} bot...")
+        self.start_up(device_streaming=False)
+
+        try:
+            self._initialize_{{ module_name }}()
+            self._execute_main_loop()
+            logging.info("{{ game_name }} bot completed successfully.")
+        except GameTimeoutError as e:
+            logging.error(f"{{ game_name }} bot timeout: {e}")
+            return
+        except Exception as e:
+            logging.error(f"{{ game_name }} bot error: {e}")
+            raise
+
+    # ===================================================================
+    # Helper Methods
+    # ===================================================================
+
+    def _initialize_{{ module_name }}(self) -> None:
+        """Initialize {{ game_name }} bot.
+
+        TODO: Implement initialization logic:
+        - Navigate to game mode
+        - Check prerequisites
+        - Setup state tracking
+        """
+        logging.info("Initializing {{ game_name }}...")
+        # TODO: Add navigation logic
+        # Example: self.navigate_to_world()
+        # Example: self.tap(Point(x, y))
+        pass
+
+    def _execute_main_loop(self) -> None:
+        """Execute main {{ game_name }} loop.
+
+        TODO: Implement main automation logic:
+        - Main game loop
+        - State detection
+        - Action execution
+        """
+        logging.info("Executing {{ game_name }} main loop...")
+        # TODO: Add main loop logic
+        pass
+
+    def _wait_for_game_state(self, template: str, timeout: int = 30) -> bool:
+        """Wait for specific game state.
+
+        Args:
+            template: Template image filename
+            timeout: Maximum wait time in seconds
+
+        Returns:
+            bool: True if state found, False otherwise
+
+        TODO: Customize state detection logic
+        """
+        try:
+            match = self.wait_for_template(
+                template,
+                timeout=timeout,
+                timeout_message=f"Failed to find {template}"
+            )
+            return match is not None
+        except GameTimeoutError:
+            return False
+
+    def _perform_action(self, action_name: str) -> bool:
+        """Perform game action.
+
+        Args:
+            action_name: Name of action to perform
+
+        Returns:
+            bool: True if action successful, False otherwise
+
+        TODO: Implement action logic based on game mechanics
+        """
+        logging.debug(f"Performing action: {action_name}")
+        # TODO: Add action implementation
+        return True
+
+    def _cleanup_{{ module_name }}(self) -> None:
+        """Cleanup after {{ game_name }} execution.
+
+        TODO: Implement cleanup logic:
+        - Exit game mode
+        - Reset state
+        - Save progress
+        """
+        logging.debug("Cleaning up {{ game_name }}...")
+        # TODO: Add cleanup logic
+        pass
