@@ -48,13 +48,13 @@ class BattleFlow:
             time.sleep(self.config.tap_delay_seconds)
             return True
 
-        for popup in self.config.popup_templates:
-            match = self.vision.find_template(popup.template_path, self.config.popup_template_threshold)
-            if match is None:
-                continue
-
-            logger.info("Popup detected: {} score={:.3f}; pressing R point", popup.name, match.score)
-            self._tap(self.config.return_home_point)
+        if self.vision.has_configured_popup():
+            logger.info(
+                "Configured popup detected; pressing Okay point {},{}",
+                self.config.okay_button_point.x,
+                self.config.okay_button_point.y,
+            )
+            self._tap(self.config.okay_button_point)
             time.sleep(self.config.tap_delay_seconds)
             return True
         return False
@@ -239,9 +239,9 @@ class BattleFlow:
         marker_detected = False
         for tap_index in range(taps_count):
             if step.deploy_point_group == "troops" and self.config.fallback_deploy_hold_seconds > 0:
-                self.device.hold_many_percent(deploy_points, self.config.fallback_deploy_hold_seconds)
+                self._hold_neighbor_batches(deploy_points, self.config.fallback_deploy_hold_seconds)
             else:
-                self.device.tap_many_percent(deploy_points)
+                self._tap_neighbor_batches(deploy_points)
             if (
                 step.deploy_point_group != "troops"
                 or not self.config.troop_marker_check_during_burst
@@ -276,9 +276,63 @@ class BattleFlow:
             self.config.g_key_deploy_presses,
             self.config.g_key_deploy_press_delay_seconds,
         )
+        if step.deploy_point_group == "troops":
+            logger.info("Reinforcing {} with configured G deploy points", step.name)
+            self._tap_neighbor_batches(self._fast_deploy_points_for_step(step))
+        self._verify_troops_deployed(step)
 
     def _fast_deploy_points_for_step(self, step: DeployStep) -> list[tuple[float, float]]:
-        return [(point.x, point.y) for point in self.config.fallback_deploy_points]
+        return self._with_neighbor_points(self.config.fallback_deploy_points)
+
+    def _with_neighbor_points(self, points: list[RelativePoint]) -> list[tuple[float, float]]:
+        if not self.config.deploy_neighbor_taps_enabled or self.config.deploy_neighbor_offset_percent <= 0:
+            return [(point.x, point.y) for point in points]
+
+        offset = self.config.deploy_neighbor_offset_percent
+        expanded: list[tuple[float, float]] = []
+        seen: set[tuple[float, float]] = set()
+        for point in points:
+            for x, y in (
+                (point.x, point.y),
+                (point.x + offset, point.y),
+                (point.x - offset, point.y),
+                (point.x, point.y + offset),
+                (point.x, point.y - offset),
+            ):
+                clamped = (round(min(100.0, max(0.0, x)), 2), round(min(100.0, max(0.0, y)), 2))
+                if clamped not in seen:
+                    expanded.append(clamped)
+                    seen.add(clamped)
+        return expanded
+
+    def _verify_troops_deployed(self, step: DeployStep) -> None:
+        if step.deploy_point_group != "troops" or not self.config.troops_deployed_template_path:
+            return
+        if self.vision.has_troops_deployed_marker():
+            logger.info("All troops marker found after {}", step.name)
+            return
+
+        deploy_points = self._fast_deploy_points_for_step(step)
+        for attempt in range(1, self.config.troop_deploy_verify_retries + 1):
+            logger.warning("All troops marker not found; retrying G deploy points attempt {}", attempt)
+            self._tap_neighbor_batches(deploy_points)
+            time.sleep(self.config.rapid_deploy_tap_delay_seconds)
+            if self.vision.has_troops_deployed_marker():
+                logger.info("All troops marker found after retry {}", attempt)
+                return
+        logger.warning("All troops marker was not found after deploy retries")
+
+    def _tap_neighbor_batches(self, points: list[tuple[float, float]]) -> None:
+        batch_size = 24
+        for start in range(0, len(points), batch_size):
+            self.device.tap_many_percent(points[start : start + batch_size])
+            time.sleep(self.config.rapid_deploy_tap_delay_seconds)
+
+    def _hold_neighbor_batches(self, points: list[tuple[float, float]], seconds: float) -> None:
+        batch_size = 12
+        for start in range(0, len(points), batch_size):
+            self.device.hold_many_percent(points[start : start + batch_size], seconds)
+            time.sleep(self.config.rapid_deploy_tap_delay_seconds)
 
     def _fallback_hold_seconds_for_step(self, step: DeployStep) -> float:
         if step.deploy_point_group == "heroes" or step.name == "battle_machine":

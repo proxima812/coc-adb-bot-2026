@@ -9,8 +9,8 @@
   "log_level": "INFO",
   "debug_screenshots_enabled": true,
   "debug_screenshot_dir": "logs/screenshots",
-  "expected_screen_width": 0,
-  "expected_screen_height": 0,
+  "expected_screen_width": 1600,
+  "expected_screen_height": 900,
   "loot_min_gold": 500000,
   "loot_min_elixir": 500000,
   "loot_check_enabled": false,
@@ -19,7 +19,7 @@
     "x": 92.27,
     "y": 70.87
   },
-  "clan_chat_message": "Привет клану!",
+  "clan_chat_message": "Hello clan!",
   "cycle_delay_seconds": 2.0,
   "next_search_delay_seconds": 1.5,
   "restart_delay_seconds": 8.0,
@@ -51,6 +51,9 @@
     "y_max": 82.0
   },
   "troop_marker_check_during_burst": false,
+  "troop_deploy_verify_retries": 2,
+  "deploy_neighbor_taps_enabled": true,
+  "deploy_neighbor_offset_percent": 0.45,
   "fallback_deploy_hold_seconds": 1.5,
   "hero_fallback_deploy_hold_seconds": 0.2,
   "pre_spell_delay_seconds": 0.2,
@@ -70,8 +73,8 @@
   "popup_template_threshold": 0.78,
   "okay_button_enabled": true,
   "okay_button_point": {
-    "x": 50.88,
-    "y": 85.0
+    "x": 50.32,
+    "y": 79.04
   },
   "okay_button_detection_area": {
     "x_min": 34.0,
@@ -116,6 +119,22 @@
     {
       "name": "star_bonus_okay_2",
       "template_path": "assets/templates/popups/star_bonus_okay_2.png"
+    },
+    {
+      "name": "star_bonus_builder_title",
+      "template_path": "assets/templates/popups/star_bonus_builder_title.png"
+    },
+    {
+      "name": "okay_green_builder",
+      "template_path": "assets/templates/popups/okay_green_builder.png"
+    },
+    {
+      "name": "hero_skin_dragon",
+      "template_path": "assets/templates/popups/hero_skin_dragon.png"
+    },
+    {
+      "name": "hero_skin_title",
+      "template_path": "assets/templates/popups/hero_skin_title.png"
     }
   ],
   "deploy_template_threshold": 0.78,
@@ -134,12 +153,18 @@
     "assets/templates/state/attack_3.png",
     "assets/templates/state/attack_4.png"
   ],
+  "star_bonus_template_paths": [
+    "assets/templates/builder/star_bonus_counter_0_9.png",
+    "assets/templates/builder/star_bonus_counter_blue.png",
+    "assets/templates/builder/star_bonus_counter_gold.png"
+  ],
   "next_template_path": "",
   "next_template_paths": [
     "assets/templates/state/next_icon.png",
     "assets/templates/state/next_text.png"
   ],
   "attack_template_threshold": 0.78,
+  "star_bonus_template_threshold": 0.78,
   "next_template_threshold": 0.78,
   "state_confirmations_required": 2,
   "battle_template_area": {
@@ -160,7 +185,14 @@
     "y_min": 66.0,
     "y_max": 96.0
   },
+  "star_bonus_template_area": {
+    "x_min": 0.0,
+    "x_max": 36.0,
+    "y_min": 0.0,
+    "y_max": 24.0
+  },
   "deploy_mode": "g_key",
+  "bot_mode": "home",
   "g_key_deploy_key": "G",
   "g_key_deploy_presses": 5,
   "g_key_deploy_press_delay_seconds": 0.05,
@@ -329,7 +361,7 @@
       },
       "deploy_taps": 1,
       "deploy_hold_seconds": 3.0,
-      "deploy_point_group": "primary"
+      "deploy_point_group": "troops"
     },
     {
       "name": "battle_machine",
@@ -452,5 +484,129 @@
   "return_home_point": {
     "x": 49.95,
     "y": 85.22
+  },
+  "builder_attack_taps": [
+    {
+      "x": 6.81,
+      "y": 88.78
+    },
+    {
+      "x": 74.5,
+      "y": 65.78
+    }
+  ],
+  "builder_troop_slots": [
+    {
+      "x": 10.94,
+      "y": 88.89
+    },
+    {
+      "x": 19.56,
+      "y": 89.44
+    },
+    {
+      "x": 26.19,
+      "y": 89.22
+    },
+    {
+      "x": 35.63,
+      "y": 88.67
+    },
+    {
+      "x": 42.88,
+      "y": 88.44
+    },
+    {
+      "x": 49.81,
+      "y": 88.33
+    },
+    {
+      "x": 57.81,
+      "y": 88.67
+    },
+    {
+      "x": 66.63,
+      "y": 88.56
+    }
+  ],
+  "builder_deploy_point": {
+    "x": 9.69,
+    "y": 51.22
+  },
+  "builder_return_home_point": {
+    "x": 50.38,
+    "y": 83.33
+  },
+  "builder_first_slot_retap_interval_seconds": 7.0,
+  "builder_redeploy_slots_interval_seconds": 20.0,
+  "builder_battle_timeout_seconds": 240.0,
+  "builder_state_poll_seconds": 1.0,
+  "builder_tap_overlay_enabled": true,
+  "builder_tap_overlay_dir": "logs/calibration/builder",
+  "builder_tap_overlay_max_per_cycle": 80,
+  "builder_calibration_enabled": true,
+  "builder_calibration_max_screen_drift_percent": 2.0,
+  "builder_safe_tap_area": {
+    "x_min": 0.0,
+    "x_max": 100.0,
+    "y_min": 0.0,
+    "y_max": 96.0
+  },
+  "builder_forbidden_tap_areas": [
+    {
+      "x_min": 72.0,
+      "x_max": 100.0,
+      "y_min": 78.0,
+      "y_max": 100.0
+    },
+    {
+      "x_min": 82.0,
+      "x_max": 100.0,
+      "y_min": 58.0,
+      "y_max": 78.0
+    },
+    {
+      "x_min": 0.0,
+      "x_max": 8.0,
+      "y_min": 0.0,
+      "y_max": 18.0
+    }
+  ],
+  "builder_attack_template_paths": [
+    "assets/templates/builder/attack_1.png",
+    "assets/templates/builder/attack_2.png",
+    "assets/templates/builder/base_attack_star_partial.png",
+    "assets/templates/builder/base_attack_axes.png",
+    "assets/templates/builder/base_attack_text.png"
+  ],
+  "builder_battle_template_paths": [
+    "assets/templates/builder/battle_1.png",
+    "assets/templates/builder/battle_2.png",
+    "assets/templates/builder/battle_3.png",
+    "assets/templates/builder/battle_4.png"
+  ],
+  "builder_return_home_template_paths": [
+    "assets/templates/builder/return_home.png"
+  ],
+  "builder_attack_template_threshold": 0.78,
+  "builder_battle_template_threshold": 0.78,
+  "builder_return_home_template_threshold": 0.78,
+  "builder_attack_template_area": {
+    "x_min": 0.0,
+    "x_max": 26.0,
+    "y_min": 65.0,
+    "y_max": 96.0
+  },
+  "builder_battle_template_area": {
+    "x_min": 0.0,
+    "x_max": 100.0,
+    "y_min": 0.0,
+    "y_max": 100.0
+  },
+  "builder_return_home_template_area": {
+    "x_min": 34.0,
+    "x_max": 66.0,
+    "y_min": 72.0,
+    "y_max": 94.0
   }
 }

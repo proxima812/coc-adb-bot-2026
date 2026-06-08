@@ -11,6 +11,10 @@ from .adb_device import AdbDevice
 from .config import BotConfig
 
 
+def _action_log(message: str, *args: object) -> None:
+    logger.bind(action=True).info(message, *args)
+
+
 class EmulatorLauncher:
     def __init__(
         self,
@@ -26,6 +30,7 @@ class EmulatorLauncher:
         player_path = Path(self.config.ldplayer_player_path)
         if not player_path.exists():
             logger.warning("LDPlayer not found: {}", player_path)
+            _action_log("LDPlayer start skipped: executable not found path={}", player_path)
             return False
 
         command = [str(player_path)]
@@ -33,11 +38,14 @@ class EmulatorLauncher:
             command.extend(["--index", self.config.ldplayer_instance])
 
         logger.info("Starting LDPlayer: {}", " ".join(command))
+        _action_log("Starting LDPlayer: command={}", " ".join(command))
         self._popen(command)
+        _action_log("Waiting after LDPlayer start: seconds={}", self.config.restart_delay_seconds)
         self._sleep(self.config.restart_delay_seconds)
         return True
 
     def start_and_connect(self, device: AdbDevice) -> None:
+        _action_log("LDPlayer start_and_connect requested")
         self.start()
         device.connect()
 

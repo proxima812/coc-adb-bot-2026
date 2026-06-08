@@ -17,9 +17,15 @@ class RecoveryModule:
 
     def recover(self, reason: Exception) -> None:
         logger.exception("Bot cycle failed: {}", reason)
+        logger.bind(action=True).info("Recovery started: reason={}", reason)
         for attempt in range(1, self.config.max_recovery_attempts + 1):
             try:
                 logger.info("Recovery attempt {}/{}", attempt, self.config.max_recovery_attempts)
+                logger.bind(action=True).info(
+                    "Recovery attempt {}/{}",
+                    attempt,
+                    self.config.max_recovery_attempts,
+                )
                 self.emulator.start()
                 self._connect_with_retries()
                 self.device.force_stop_app(self.config.package_name)
@@ -27,9 +33,11 @@ class RecoveryModule:
                 self.device.start_app(self.config.package_name)
                 time.sleep(self.config.restart_delay_seconds)
                 self.device.check()
+                logger.bind(action=True).info("Recovery completed on attempt {}", attempt)
                 return
             except Exception as exc:
                 logger.warning("Recovery attempt failed: {}", exc)
+                logger.bind(action=True).info("Recovery attempt failed: attempt={} error={}", attempt, exc)
                 self.device.kill_server()
                 time.sleep(self.config.restart_delay_seconds)
         raise RuntimeError("Recovery failed after max attempts") from reason

@@ -20,6 +20,9 @@ class AdbDevice:
         self.dry_run = dry_run
         self._screen_size: tuple[int, int] | None = None
 
+    def _action_log(self, message: str, *args: object) -> None:
+        logger.bind(action=True).info(message, *args)
+
     def _base_cmd(self) -> list[str]:
         path = Path(self.adb_path)
         if not path.exists():
@@ -70,6 +73,7 @@ class AdbDevice:
         return result.stdout
 
     def connect(self) -> None:
+        self._action_log("ADB connect requested: serial={}", self.serial)
         adb = Path(self.adb_path)
         if not adb.exists():
             raise AdbError(f"ADB not found: {self.adb_path}")
@@ -86,31 +90,46 @@ class AdbDevice:
             raise AdbError(output or "Unable to connect ADB device")
         self._screen_size = None
         logger.info("ADB connected: {}", output)
+        self._action_log("ADB connected: {}", output)
 
     def kill_server(self) -> None:
         adb = Path(self.adb_path)
         if not adb.exists():
             return
+        self._action_log("ADB kill-server requested")
         subprocess.run([str(adb), "kill-server"], capture_output=True, timeout=10)
         self._screen_size = None
 
     def check(self) -> None:
+        self._action_log("ADB device check requested: serial={}", self.serial)
         self.run("shell", "getprop", "ro.product.model", timeout=10)
         logger.info("ADB device check passed: {}", self.serial)
 
     def start_app(self, package_name: str) -> None:
+        self._action_log("Start app requested: package={}", package_name)
         self.run("shell", "monkey", "-p", package_name, "-c", "android.intent.category.LAUNCHER", "1")
 
     def force_stop_app(self, package_name: str) -> None:
+        self._action_log("Force-stop app requested: package={}", package_name)
         self.run("shell", "am", "force-stop", package_name)
 
     def tap(self, x: int, y: int) -> None:
+        self._action_log("ADB tap: x={} y={} dry_run={}", x, y, self.dry_run)
         if self.dry_run:
             logger.info("DRY-RUN tap {},{}", x, y)
             return
         self.run("shell", "input", "tap", str(x), str(y), timeout=10)
 
     def swipe(self, x1: int, y1: int, x2: int, y2: int, duration_ms: int) -> None:
+        self._action_log(
+            "ADB swipe: x1={} y1={} x2={} y2={} duration_ms={} dry_run={}",
+            x1,
+            y1,
+            x2,
+            y2,
+            duration_ms,
+            self.dry_run,
+        )
         if self.dry_run:
             logger.info("DRY-RUN swipe {},{} -> {},{} {}ms", x1, y1, x2, y2, duration_ms)
             return
@@ -151,6 +170,18 @@ class AdbDevice:
             y2,
             duration_ms,
         )
+        self._action_log(
+            "ADB swipe percent: {}%,{}% -> {}%,{}% pixels={},{}->{},{} duration_ms={}",
+            x1_percent,
+            y1_percent,
+            x2_percent,
+            y2_percent,
+            x1,
+            y1,
+            x2,
+            y2,
+            duration_ms,
+        )
         self.swipe(x1, y1, x2, y2, duration_ms)
 
     def pinch_zoom_out_percent(self, seconds: float = 0.35) -> None:
@@ -174,6 +205,7 @@ class AdbDevice:
             logger.info("DRY-RUN pinch zoom out {} for {}ms", gestures, duration_ms)
             return
         logger.debug("Pinch zoom out: {} for {}ms", gestures, duration_ms)
+        self._action_log("ADB pinch zoom out: gestures={} duration_ms={}", gestures, duration_ms)
         with ThreadPoolExecutor(max_workers=2) as executor:
             futures = [
                 executor.submit(self.swipe, x1, y1, x2, y2, duration_ms)
@@ -192,6 +224,7 @@ class AdbDevice:
         self._activate_emulator_window()
 
         logger.debug("Ctrl+mouse wheel down zoom out ticks={}", wheel_ticks)
+        self._action_log("LDPlayer Ctrl+mouse wheel zoom out: ticks={}", wheel_ticks)
         user32 = ctypes.windll.user32
         vk_control = 0x11
         keyeventf_keyup = 0x0002
@@ -215,6 +248,7 @@ class AdbDevice:
         self._activate_emulator_window()
         vk_code = self._virtual_key_code(key)
         logger.debug("Pressing emulator key {} presses={}", key, presses)
+        self._action_log("LDPlayer key press: key={} presses={} delay_seconds={}", key, presses, delay_seconds)
         user32 = ctypes.windll.user32
         keyeventf_keyup = 0x0002
         for _ in range(presses):
@@ -282,6 +316,7 @@ class AdbDevice:
         x = round(width * x_percent / 100)
         y = round(height * y_percent / 100)
         logger.debug("Tap {}%,{}% -> {},{}", x_percent, y_percent, x, y)
+        self._action_log("ADB tap percent: {}%,{}% -> x={} y={} screen={}x{}", x_percent, y_percent, x, y, width, height)
         self.tap(x, y)
 
     def tap_many_percent(self, points: list[tuple[float, float]]) -> None:
@@ -296,6 +331,7 @@ class AdbDevice:
             logger.info("DRY-RUN parallel taps {}", pixel_points)
             return
         logger.debug("Parallel taps: {}", pixel_points)
+        self._action_log("ADB parallel taps: count={} pixels={} screen={}x{}", len(pixel_points), pixel_points, width, height)
         with ThreadPoolExecutor(max_workers=len(pixel_points)) as executor:
             futures = [executor.submit(self.tap, x, y) for x, y in pixel_points]
             for future in as_completed(futures):
@@ -314,6 +350,14 @@ class AdbDevice:
             logger.info("DRY-RUN parallel holds {} for {}ms", pixel_points, duration_ms)
             return
         logger.debug("Parallel holds: {} for {}ms", pixel_points, duration_ms)
+        self._action_log(
+            "ADB parallel holds: count={} pixels={} duration_ms={} screen={}x{}",
+            len(pixel_points),
+            pixel_points,
+            duration_ms,
+            width,
+            height,
+        )
         with ThreadPoolExecutor(max_workers=len(pixel_points)) as executor:
             futures = [executor.submit(self.swipe, x, y, x, y, duration_ms) for x, y in pixel_points]
             for future in as_completed(futures):
@@ -325,9 +369,20 @@ class AdbDevice:
         y = round(height * y_percent / 100)
         duration_ms = round(seconds * 1000)
         logger.debug("Hold {}%,{}% -> {},{} for {}ms", x_percent, y_percent, x, y, duration_ms)
+        self._action_log(
+            "ADB hold percent: {}%,{}% -> x={} y={} duration_ms={} screen={}x{}",
+            x_percent,
+            y_percent,
+            x,
+            y,
+            duration_ms,
+            width,
+            height,
+        )
         self.swipe(x, y, x, y, duration_ms)
 
     def text(self, value: str) -> None:
+        self._action_log("ADB text input requested: length={} dry_run={}", len(value), self.dry_run)
         if self.dry_run:
             logger.info("DRY-RUN text {}", value)
             return
@@ -335,6 +390,7 @@ class AdbDevice:
         self.run("shell", "input", "text", escaped, timeout=10)
 
     def keyevent(self, keycode: int) -> None:
+        self._action_log("ADB keyevent: keycode={} dry_run={}", keycode, self.dry_run)
         if self.dry_run:
             logger.info("DRY-RUN keyevent {}", keycode)
             return
@@ -344,8 +400,10 @@ class AdbDevice:
         last_error: Exception | None = None
         for attempt in range(1, 4):
             try:
+                self._action_log("ADB screenshot attempt {}/3", attempt)
                 raw = self.run_bytes("exec-out", "screencap", "-p", timeout=20)
                 if raw:
+                    self._action_log("ADB screenshot captured: attempt={} bytes={}", attempt, len(raw))
                     return raw
                 last_error = AdbError("ADB returned an empty screenshot")
             except Exception as exc:

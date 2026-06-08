@@ -33,6 +33,30 @@ class CalibrationOverlayTest(unittest.TestCase):
             self.assertNotEqual(image.getpixel((100, 50)), (32, 32, 32))
             self.assertNotEqual(image.getpixel((20, 20)), (32, 32, 32))
 
+    def test_saves_builder_overlay_with_active_point_and_forbidden_area(self) -> None:
+        config = BotConfig(
+            builder_troop_slots=[RelativePoint(x=20.0, y=88.0)],
+            builder_attack_taps=[RelativePoint(x=6.0, y=88.0)],
+            builder_deploy_point=RelativePoint(x=10.0, y=50.0),
+            builder_return_home_point=RelativePoint(x=50.0, y=83.0),
+            builder_forbidden_tap_areas=[RelativeArea(x_min=80.0, x_max=100.0, y_min=80.0, y_max=100.0)],
+        )
+        screenshot = np.full((100, 200, 3), 32, dtype=np.uint8)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output = CalibrationOverlay(config).save_builder_overlay(
+                screenshot,
+                Path(tmp_dir),
+                "builder-active",
+                [RelativePoint(x=10.0, y=50.0)],
+            )
+
+            self.assertTrue(output.exists())
+            image = Image.open(output).convert("RGB")
+            self.assertEqual(image.size, (200, 100))
+            self.assertNotEqual(image.getpixel((20, 50)), (32, 32, 32))
+            self.assertNotEqual(image.getpixel((160, 80)), (32, 32, 32))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -33,6 +33,37 @@ class CalibrationOverlay:
         logger.info("Calibration overlay saved: {}", path)
         return path
 
+    def save_builder_overlay(
+        self,
+        screenshot: np.ndarray,
+        output_dir: Path | str,
+        reason: str = "builder",
+        active_points: list[RelativePoint] | None = None,
+    ) -> Path:
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        image = Image.fromarray(screenshot).convert("RGB")
+        draw = ImageDraw.Draw(image)
+        width, height = image.size
+
+        self._draw_grid(draw, width, height)
+        self._draw_area(draw, width, height, self.config.builder_safe_tap_area, "builder-safe", (80, 210, 120))
+        for index, area in enumerate(self.config.builder_forbidden_tap_areas, start=1):
+            self._draw_area(draw, width, height, area, f"no-tap{index}", (255, 80, 80))
+        self._draw_points(draw, width, height, self.config.builder_attack_taps, "attack", (255, 220, 80))
+        self._draw_points(draw, width, height, self.config.builder_troop_slots, "slot", (80, 180, 255))
+        self._draw_points(draw, width, height, [self.config.builder_deploy_point], "deploy", (255, 120, 255))
+        self._draw_points(draw, width, height, [self.config.builder_return_home_point], "home", (120, 255, 180))
+        if active_points:
+            self._draw_active_points(draw, width, height, active_points)
+
+        safe_reason = "".join(char if char.isalnum() or char in "._-" else "_" for char in reason).strip("_")
+        filename = f"{datetime.now():%Y%m%d-%H%M%S-%f}-{safe_reason or 'builder'}.png"
+        path = output_path / filename
+        image.save(path)
+        logger.info("Builder calibration overlay saved: {}", path)
+        return path
+
     def _draw_grid(self, draw: ImageDraw.ImageDraw, width: int, height: int) -> None:
         step = self.config.calibration_overlay_grid_step_percent
         value = 0.0
@@ -79,6 +110,22 @@ class CalibrationOverlay:
             draw.line([(x - 8, y), (x + 8, y)], fill=color, width=1)
             draw.line([(x, y - 8), (x, y + 8)], fill=color, width=1)
             self._label(draw, x + 7, y + 7, f"{label_prefix}{index} {point.x:g},{point.y:g}")
+
+    def _draw_active_points(
+        self,
+        draw: ImageDraw.ImageDraw,
+        width: int,
+        height: int,
+        points: list[RelativePoint],
+    ) -> None:
+        for index, point in enumerate(points, start=1):
+            x = round(width * point.x / 100)
+            y = round(height * point.y / 100)
+            radius = 9
+            draw.ellipse([(x - radius, y - radius), (x + radius, y + radius)], fill=(0, 255, 60), outline=(0, 0, 0), width=2)
+            draw.line([(x - 14, y), (x + 14, y)], fill=(255, 255, 255), width=2)
+            draw.line([(x, y - 14), (x, y + 14)], fill=(255, 255, 255), width=2)
+            self._label(draw, x + 12, y + 12, f"ACTIVE{index} {point.x:g},{point.y:g}")
 
     @staticmethod
     def _label(draw: ImageDraw.ImageDraw, x: int, y: int, text: str) -> None:

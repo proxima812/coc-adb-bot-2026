@@ -101,6 +101,12 @@ class VisionModule:
         if self._has_attack_button(screenshot):
             logger.debug("State detected by attack template in {:.1f}ms", (time.perf_counter() - started_at) * 1000)
             return GameState.VILLAGE
+        if self._has_star_bonus_counter(screenshot):
+            logger.debug(
+                "State detected by star bonus template in {:.1f}ms",
+                (time.perf_counter() - started_at) * 1000,
+            )
+            return GameState.VILLAGE
 
         template_at = time.perf_counter()
         bottom_text = self._read_screen_text_from_image(screenshot, self.config.state_ocr_bottom_area).lower()
@@ -235,6 +241,21 @@ class VisionModule:
             self.config.attack_template_area,
         )
 
+    def _has_star_bonus_counter(self, screenshot: np.ndarray) -> bool:
+        return self._find_any_template_in_image(
+            screenshot,
+            self.config.star_bonus_template_paths,
+            self.config.star_bonus_template_threshold,
+            self.config.star_bonus_template_area,
+        )
+
+    def has_star_bonus_counter(self) -> bool:
+        return self._find_any_template(
+            self.config.star_bonus_template_paths,
+            self.config.star_bonus_template_threshold,
+            self.config.star_bonus_template_area,
+        )
+
     def has_troops_deployed_marker(self) -> bool:
         if not self.config.troops_deployed_template_path:
             return False
@@ -248,12 +269,47 @@ class VisionModule:
         logger.info("Troops deployed marker detected at {},{} score={:.3f}", match.x, match.y, match.score)
         return True
 
+    def has_builder_attack_button(self) -> bool:
+        return self._find_any_template(
+            self.config.builder_attack_template_paths,
+            self.config.builder_attack_template_threshold,
+            self.config.builder_attack_template_area,
+        )
+
+    def has_builder_battle_marker(self) -> bool:
+        return self._find_any_template(
+            self.config.builder_battle_template_paths,
+            self.config.builder_battle_template_threshold,
+            self.config.builder_battle_template_area,
+        )
+
+    def has_builder_return_home_button(self) -> bool:
+        return self._find_any_template(
+            self.config.builder_return_home_template_paths,
+            self.config.builder_return_home_template_threshold,
+            self.config.builder_return_home_template_area,
+        )
+
     def has_okay_button(self) -> bool:
         if not self.config.okay_button_enabled:
             return False
+        for popup in self.config.popup_templates:
+            if "okay" not in popup.name.lower():
+                continue
+            if self.find_template(popup.template_path, self.config.popup_template_threshold) is not None:
+                return True
         text = self._read_screen_text(self.config.okay_button_detection_area).lower()
         normalized = re.sub(r"[^a-z]+", "", text)
         return "okay" in normalized or "ok" == normalized
+
+    def has_configured_popup(self) -> bool:
+        for popup in self.config.popup_templates:
+            match = self.find_template(popup.template_path, self.config.popup_template_threshold)
+            if match is None:
+                continue
+            logger.info("Popup template detected: {} score={:.3f}", popup.name, match.score)
+            return True
+        return False
 
     def detect_deploy_boundary_points(self) -> list[RelativePoint]:
         if not self.config.auto_deploy_boundaries_enabled:

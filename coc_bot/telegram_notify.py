@@ -1,0 +1,86 @@
+from __future__ import annotations
+
+import json
+import os
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+from loguru import logger
+
+
+def load_dotenv(path: str | Path = ".env") -> None:
+    env_path = Path(path)
+    if not env_path.exists():
+        return
+
+    for raw_line in env_path.read_text(encoding="utf-8-sig").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+class TelegramNotifier:
+    def __init__(self, token: str | None = None, chat_id: str | None = None) -> None:
+        self.token = token or os.environ.get("TELEGRAM_BOT_TOKEN", "")
+        self.chat_id = chat_id or os.environ.get("TELEGRAM_CHAT_ID", "")
+
+    def send(self, text: str) -> bool:
+        if not self.token:
+            logger.warning("Telegram bot token is not configured")
+            return False
+
+        chat_id = self.chat_id or self._latest_chat_id()
+        if not chat_id:
+            logger.warning("Telegram chat id is not configured; send a message to the bot or set TELEGRAM_CHAT_ID")
+            return False
+
+        payload = urllib.parse.urlencode({"chat_id": chat_id, "text": text}).encode("utf-8")
+        try:
+            with urllib.request.urlopen(self._api_url("sendMessage"), data=payload, timeout=10) as response:
+                raw = response.read()
+        except Exception as exc:
+            logger.warning("Telegram send failed: {}", exc)
+            return False
+
+        try:
+            data = json.loads(raw.decode("utf-8"))
+        except json.JSONDecodeError:
+            logger.warning("Telegram send returned invalid JSON")
+            return False
+
+        if not data.get("ok"):
+            logger.warning("Telegram send failed: {}", data)
+            return False
+        self.chat_id = str(chat_id)
+        return True
+
+    def _latest_chat_id(self) -> str:
+        try:
+            with urllib.request.urlopen(self._api_url("getUpdates"), timeout=10) as response:
+                data = json.loads(response.read().decode("utf-8"))
+        except Exception as exc:
+            logger.warning("Telegram getUpdates failed: {}", exc)
+            return ""
+
+        if not data.get("ok"):
+            logger.warning("Telegram getUpdates failed: {}", data)
+            return ""
+
+        for update in reversed(data.get("result", [])):
+            message = update.get("message") or update.get("edited_message")
+            if not message:
+                continue
+            chat = message.get("chat") or {}
+            chat_id = chat.get("id")
+            if chat_id is not None:
+                return str(chat_id)
+        return ""
+
+    def _api_url(self, method: str) -> str:
+        return f"https://api.telegram.org/bot{self.token}/{method}"
