@@ -6,12 +6,17 @@ import numpy as np
 
 from coc_bot.builder_flow import BuilderBattleFlow, UnsafeBuilderTapError
 from coc_bot.config import BotConfig, RelativeArea, RelativePoint
+from coc_bot.vision import BuilderSlotState
 
 
 class FakeDevice:
     def __init__(self) -> None:
+        self.pixel_taps: list[tuple[int, int]] = []
         self.taps: list[tuple[float, float]] = []
         self.tap_batches: list[list[tuple[float, float]]] = []
+
+    def tap(self, x: int, y: int) -> None:
+        self.pixel_taps.append((x, y))
 
     def tap_percent(self, x: float, y: float) -> None:
         self.taps.append((x, y))
@@ -24,6 +29,10 @@ class FakeVision:
     def __init__(self) -> None:
         self.okay_results: list[bool] = []
         self.popup_results: list[bool] = []
+        self.find_match_results: list[object | None] = []
+        self.return_home_results: list[bool] = []
+        self.slot_state_results: list[str] = []
+        self.hero_results: list[bool] = []
 
     def screenshot_array(self) -> np.ndarray:
         return np.full((100, 200, 3), 32, dtype=np.uint8)
@@ -33,6 +42,18 @@ class FakeVision:
 
     def has_configured_popup(self) -> bool:
         return self.popup_results.pop(0) if self.popup_results else False
+
+    def find_builder_find_match_button(self) -> object | None:
+        return self.find_match_results.pop(0) if self.find_match_results else None
+
+    def has_builder_return_home_button(self) -> bool:
+        return self.return_home_results.pop(0) if self.return_home_results else False
+
+    def detect_builder_slot_state(self, slot: RelativePoint) -> str:
+        return self.slot_state_results.pop(0) if self.slot_state_results else BuilderSlotState.DEPLOYED
+
+    def has_builder_hero(self) -> bool:
+        return self.hero_results.pop(0) if self.hero_results else False
 
 
 class BuilderFlowGuardTest(unittest.TestCase):
@@ -93,6 +114,135 @@ class BuilderFlowGuardTest(unittest.TestCase):
         self.assertTrue(flow.dismiss_popups())
 
         self.assertEqual(device.taps, [(50.32, 79.04)])
+
+    def test_open_attack_waits_for_find_match_before_second_tap(self) -> None:
+        device = FakeDevice()
+        vision = FakeVision()
+        vision.find_match_results = [
+            None,
+            type("Match", (), {"x": 1192, "y": 592, "score": 0.91})(),
+        ]
+        config = BotConfig(
+            builder_tap_overlay_enabled=False,
+            builder_calibration_enabled=False,
+            builder_state_poll_seconds=0.0,
+        )
+        flow = BuilderBattleFlow(device, vision, config)  # type: ignore[arg-type]
+
+        flow._open_attack()
+
+        self.assertEqual(device.taps, [(6.81, 88.78)])
+        self.assertEqual(device.pixel_taps, [(1192, 592)])
+
+    def test_wait_return_home_does_not_redeploy_when_disabled(self) -> None:
+        device = FakeDevice()
+        vision = FakeVision()
+        config = BotConfig(
+            builder_tap_overlay_enabled=False,
+            builder_calibration_enabled=False,
+            builder_battle_timeout_seconds=0.01,
+            builder_state_poll_seconds=0.0,
+            builder_first_slot_retap_enabled=False,
+            builder_redeploy_slots_enabled=False,
+        )
+        flow = BuilderBattleFlow(device, vision, config)  # type: ignore[arg-type]
+
+        flow._wait_and_return_home()
+
+        self.assertEqual(device.tap_batches, [])
+
+    def test_wait_return_home_redeploys_slots_after_interval(self) -> None:
+        device = FakeDevice()
+        vision = FakeVision()
+        config = BotConfig(
+            builder_tap_overlay_enabled=False,
+            builder_calibration_enabled=False,
+            builder_battle_timeout_seconds=0.03,
+            builder_state_poll_seconds=0.0,
+            builder_redeploy_slots_enabled=True,
+            builder_redeploy_slots_interval_seconds=0.0,
+            builder_hero_ability_enabled=False,
+        )
+        flow = BuilderBattleFlow(device, vision, config)  # type: ignore[arg-type]
+
+        flow._wait_and_return_home()
+
+        self.assertGreaterEqual(len(device.tap_batches), len(config.builder_troop_slots))
+
+    def test_wait_return_home_skips_hero_ability_when_hero_missing(self) -> None:
+        device = FakeDevice()
+        vision = FakeVision()
+        config = BotConfig(
+            builder_tap_overlay_enabled=False,
+            builder_calibration_enabled=False,
+            builder_battle_timeout_seconds=0.03,
+            builder_state_poll_seconds=0.0,
+            builder_first_slot_retap_enabled=False,
+            builder_redeploy_slots_enabled=False,
+            builder_hero_ability_enabled=True,
+            builder_hero_ability_interval_seconds=0.0,
+            builder_hero_ability_point=RelativePoint(x=5.7, y=90.0),
+        )
+        flow = BuilderBattleFlow(device, vision, config)  # type: ignore[arg-type]
+
+        flow._wait_and_return_home()
+
+        self.assertNotIn((5.7, 90.0), device.taps)
+
+    def test_wait_return_home_activates_hero_ability_when_hero_present(self) -> None:
+        device = FakeDevice()
+        vision = FakeVision()
+        vision.hero_results = [True]
+        config = BotConfig(
+            builder_tap_overlay_enabled=False,
+            builder_calibration_enabled=False,
+            builder_battle_timeout_seconds=0.01,
+            builder_state_poll_seconds=0.0,
+            builder_first_slot_retap_enabled=False,
+            builder_redeploy_slots_enabled=False,
+            builder_hero_ability_enabled=True,
+            builder_hero_ability_interval_seconds=0.0,
+            builder_hero_ability_point=RelativePoint(x=5.7, y=90.0),
+        )
+        flow = BuilderBattleFlow(device, vision, config)  # type: ignore[arg-type]
+
+        flow._wait_and_return_home()
+
+        self.assertIn((5.7, 90.0), device.taps)
+
+    def test_rapid_deploy_taps_all_builder_slots_before_state_checks(self) -> None:
+        device = FakeDevice()
+        config = BotConfig(
+            builder_tap_overlay_enabled=False,
+            builder_calibration_enabled=False,
+            builder_slot_state_checks_enabled=False,
+        )
+        flow = BuilderBattleFlow(device, FakeVision(), config)  # type: ignore[arg-type]
+
+        flow._deploy_slots()
+
+        self.assertEqual(device.taps, [(slot.x, slot.y) for slot in config.builder_troop_slots])
+        self.assertEqual(len(device.tap_batches), len(config.builder_troop_slots))
+
+    def test_slot_state_check_retries_not_deployed_and_activates_ready_skill(self) -> None:
+        device = FakeDevice()
+        vision = FakeVision()
+        vision.slot_state_results = [
+            BuilderSlotState.NOT_DEPLOYED,
+            BuilderSlotState.ABILITY_READY,
+            *([BuilderSlotState.DEPLOYED] * 6),
+        ]
+        config = BotConfig(
+            builder_tap_overlay_enabled=False,
+            builder_calibration_enabled=False,
+            builder_slot_state_check_passes=1,
+        )
+        flow = BuilderBattleFlow(device, vision, config)  # type: ignore[arg-type]
+
+        flow._check_builder_slot_states()
+
+        self.assertEqual(device.taps, [(10.94, 88.89), (19.56, 89.44)])
+        self.assertEqual(len(device.tap_batches), 1)
 
 
 if __name__ == "__main__":

@@ -281,12 +281,20 @@ class BotConfig:
     builder_deploy_point: RelativePoint = field(default_factory=lambda: RelativePoint(x=9.69, y=51.22))
     builder_return_home_point: RelativePoint = field(default_factory=lambda: RelativePoint(x=50.38, y=83.33))
     builder_first_slot_retap_interval_seconds: float = 7.0
-    builder_redeploy_slots_interval_seconds: float = 20.0
+    builder_redeploy_slots_interval_seconds: float = 25.0
+    builder_first_slot_retap_enabled: bool = False
+    builder_redeploy_slots_enabled: bool = True
+    builder_hero_ability_enabled: bool = True
+    builder_hero_ability_point: RelativePoint = field(default_factory=lambda: RelativePoint(x=5.7, y=90.0))
+    builder_hero_ability_interval_seconds: float = 10.0
+    builder_slot_state_checks_enabled: bool = True
+    builder_slot_state_check_passes: int = 2
+    builder_slot_state_check_delay_seconds: float = 0.25
     builder_battle_timeout_seconds: float = 240.0
     builder_state_poll_seconds: float = 1.0
     builder_tap_overlay_enabled: bool = True
     builder_tap_overlay_dir: str = "logs/calibration/builder"
-    builder_tap_overlay_max_per_cycle: int = 80
+    builder_tap_overlay_max_per_cycle: int = 200
     builder_calibration_enabled: bool = True
     builder_calibration_max_screen_drift_percent: float = 2.0
     builder_safe_tap_area: RelativeArea = field(default_factory=lambda: RelativeArea(x_min=0.0, x_max=100.0, y_min=0.0, y_max=96.0))
@@ -306,12 +314,30 @@ class BotConfig:
             "assets/templates/builder/base_attack_text.png",
         ]
     )
+    builder_find_match_template_paths: list[str] = field(default_factory=lambda: ["assets/templates/builder/attack_2.png"])
+    builder_slot_not_deployed_template_paths: list[str] = field(default_factory=lambda: ["assets/templates/builder/slots/not_deployed.png"])
+    builder_slot_deployed_template_paths: list[str] = field(
+        default_factory=lambda: [
+            "assets/templates/builder/slots/deployed.png",
+            "assets/templates/builder/slots/deployed_alt.png",
+        ]
+    )
+    builder_slot_ability_ready_template_paths: list[str] = field(default_factory=lambda: ["assets/templates/builder/slots/ability_ready.png"])
+    builder_hero_present_template_paths: list[str] = field(default_factory=lambda: ["assets/templates/builder/slots/hero_present.png"])
     builder_battle_template_paths: list[str] = field(default_factory=list)
     builder_return_home_template_paths: list[str] = field(default_factory=list)
     builder_attack_template_threshold: float = 0.78
+    builder_find_match_template_threshold: float = 0.78
+    builder_slot_state_template_threshold: float = 0.78
+    builder_hero_present_template_threshold: float = 0.72
     builder_battle_template_threshold: float = 0.78
     builder_return_home_template_threshold: float = 0.78
     builder_attack_template_area: RelativeArea = field(default_factory=lambda: RelativeArea(x_min=0.0, x_max=26.0, y_min=65.0, y_max=96.0))
+    builder_find_match_template_area: RelativeArea = field(default_factory=lambda: RelativeArea(x_min=55.0, x_max=84.0, y_min=50.0, y_max=76.0))
+    builder_slot_state_area_radius_x: float = 4.5
+    builder_slot_state_area_y_min_offset: float = -18.0
+    builder_slot_state_area_y_max_offset: float = 2.5
+    builder_hero_present_template_area: RelativeArea = field(default_factory=lambda: RelativeArea(x_min=0.0, x_max=12.0, y_min=66.0, y_max=100.0))
     builder_battle_template_area: RelativeArea = field(default_factory=lambda: RelativeArea(x_min=0.0, x_max=100.0, y_min=0.0, y_max=100.0))
     builder_return_home_template_area: RelativeArea = field(default_factory=lambda: RelativeArea(x_min=34.0, x_max=66.0, y_min=72.0, y_max=94.0))
 
@@ -380,6 +406,7 @@ def _config_from_dict(raw: dict) -> BotConfig:
         "account_old_proxima_point",
         "builder_deploy_point",
         "builder_return_home_point",
+        "builder_hero_ability_point",
     ):
         if key in data:
             data[key] = _point(data[key])
@@ -399,6 +426,8 @@ def _config_from_dict(raw: dict) -> BotConfig:
         "state_ocr_top_left_area",
         "okay_button_detection_area",
         "builder_attack_template_area",
+        "builder_find_match_template_area",
+        "builder_hero_present_template_area",
         "builder_battle_template_area",
         "builder_return_home_template_area",
         "builder_safe_tap_area",
@@ -491,6 +520,7 @@ def validate_config(config: BotConfig) -> None:
         "state_ocr_top_left_area",
         "okay_button_detection_area",
         "builder_attack_template_area",
+        "builder_find_match_template_area",
         "builder_battle_template_area",
         "builder_return_home_template_area",
         "builder_safe_tap_area",
@@ -524,12 +554,17 @@ def validate_config(config: BotConfig) -> None:
         "account_switch_tap_delay_seconds",
         "builder_first_slot_retap_interval_seconds",
         "builder_redeploy_slots_interval_seconds",
+        "builder_hero_ability_interval_seconds",
+        "builder_slot_state_check_delay_seconds",
         "builder_battle_timeout_seconds",
         "builder_state_poll_seconds",
         "builder_calibration_max_screen_drift_percent",
+        "builder_slot_state_area_radius_x",
     ):
         if getattr(config, name) < 0:
             errors.append(f"{name} must be >= 0")
+    if config.builder_slot_state_check_passes < 0:
+        errors.append("builder_slot_state_check_passes must be >= 0")
     if config.builder_tap_overlay_max_per_cycle < 0:
         errors.append("builder_tap_overlay_max_per_cycle must be >= 0")
 
@@ -544,6 +579,11 @@ def validate_config(config: BotConfig) -> None:
         *config.star_bonus_template_paths,
         *config.next_template_paths,
         *config.builder_attack_template_paths,
+        *config.builder_find_match_template_paths,
+        *config.builder_slot_not_deployed_template_paths,
+        *config.builder_slot_deployed_template_paths,
+        *config.builder_slot_ability_ready_template_paths,
+        *config.builder_hero_present_template_paths,
         *config.builder_battle_template_paths,
         *config.builder_return_home_template_paths,
     ]

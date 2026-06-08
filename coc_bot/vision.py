@@ -43,6 +43,13 @@ class GameState:
     UNKNOWN = "unknown"
 
 
+class BuilderSlotState:
+    NOT_DEPLOYED = "not_deployed"
+    DEPLOYED = "deployed"
+    ABILITY_READY = "ability_ready"
+    UNKNOWN = "unknown"
+
+
 class VisionModule:
     def __init__(self, device: AdbDevice, config: BotConfig) -> None:
         self.device = device
@@ -276,11 +283,63 @@ class VisionModule:
             self.config.builder_attack_template_area,
         )
 
+    def find_builder_find_match_button(self) -> TemplateMatch | None:
+        for template_path in self.config.builder_find_match_template_paths:
+            match = self.find_template(
+                template_path,
+                self.config.builder_find_match_template_threshold,
+                self.config.builder_find_match_template_area,
+            )
+            if match is not None:
+                return match
+        return None
+
     def has_builder_battle_marker(self) -> bool:
         return self._find_any_template(
             self.config.builder_battle_template_paths,
             self.config.builder_battle_template_threshold,
             self.config.builder_battle_template_area,
+        )
+
+    def has_builder_hero(self) -> bool:
+        return self._find_any_template(
+            self.config.builder_hero_present_template_paths,
+            self.config.builder_hero_present_template_threshold,
+            self.config.builder_hero_present_template_area,
+        )
+
+    def detect_builder_slot_state(self, slot: RelativePoint) -> str:
+        screenshot = self.screenshot_array()
+        area = self._builder_slot_state_area(slot)
+        if self._find_any_template_in_image(
+            screenshot,
+            self.config.builder_slot_ability_ready_template_paths,
+            self.config.builder_slot_state_template_threshold,
+            area,
+        ):
+            return BuilderSlotState.ABILITY_READY
+        if self._find_any_template_in_image(
+            screenshot,
+            self.config.builder_slot_not_deployed_template_paths,
+            self.config.builder_slot_state_template_threshold,
+            area,
+        ):
+            return BuilderSlotState.NOT_DEPLOYED
+        if self._find_any_template_in_image(
+            screenshot,
+            self.config.builder_slot_deployed_template_paths,
+            self.config.builder_slot_state_template_threshold,
+            area,
+        ):
+            return BuilderSlotState.DEPLOYED
+        return BuilderSlotState.UNKNOWN
+
+    def _builder_slot_state_area(self, slot: RelativePoint) -> RelativeArea:
+        return RelativeArea(
+            x_min=max(0.0, slot.x - self.config.builder_slot_state_area_radius_x),
+            x_max=min(100.0, slot.x + self.config.builder_slot_state_area_radius_x),
+            y_min=max(0.0, slot.y + self.config.builder_slot_state_area_y_min_offset),
+            y_max=min(100.0, slot.y + self.config.builder_slot_state_area_y_max_offset),
         )
 
     def has_builder_return_home_button(self) -> bool:

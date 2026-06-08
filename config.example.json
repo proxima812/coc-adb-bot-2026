@@ -538,12 +538,23 @@
     "y": 83.33
   },
   "builder_first_slot_retap_interval_seconds": 7.0,
-  "builder_redeploy_slots_interval_seconds": 20.0,
+  "builder_redeploy_slots_interval_seconds": 25.0,
+  "builder_first_slot_retap_enabled": false,
+  "builder_redeploy_slots_enabled": true,
+  "builder_hero_ability_enabled": true,
+  "builder_hero_ability_point": {
+    "x": 5.7,
+    "y": 90.0
+  },
+  "builder_hero_ability_interval_seconds": 10.0,
+  "builder_slot_state_checks_enabled": true,
+  "builder_slot_state_check_passes": 2,
+  "builder_slot_state_check_delay_seconds": 0.25,
   "builder_battle_timeout_seconds": 240.0,
   "builder_state_poll_seconds": 1.0,
   "builder_tap_overlay_enabled": true,
   "builder_tap_overlay_dir": "logs/calibration/builder",
-  "builder_tap_overlay_max_per_cycle": 80,
+  "builder_tap_overlay_max_per_cycle": 200,
   "builder_calibration_enabled": true,
   "builder_calibration_max_screen_drift_percent": 2.0,
   "builder_safe_tap_area": {
@@ -579,6 +590,22 @@
     "assets/templates/builder/base_attack_axes.png",
     "assets/templates/builder/base_attack_text.png"
   ],
+  "builder_find_match_template_paths": [
+    "assets/templates/builder/attack_2.png"
+  ],
+  "builder_slot_not_deployed_template_paths": [
+    "assets/templates/builder/slots/not_deployed.png"
+  ],
+  "builder_slot_deployed_template_paths": [
+    "assets/templates/builder/slots/deployed.png",
+    "assets/templates/builder/slots/deployed_alt.png"
+  ],
+  "builder_slot_ability_ready_template_paths": [
+    "assets/templates/builder/slots/ability_ready.png"
+  ],
+  "builder_hero_present_template_paths": [
+    "assets/templates/builder/slots/hero_present.png"
+  ],
   "builder_battle_template_paths": [
     "assets/templates/builder/battle_1.png",
     "assets/templates/builder/battle_2.png",
@@ -589,6 +616,9 @@
     "assets/templates/builder/return_home.png"
   ],
   "builder_attack_template_threshold": 0.78,
+  "builder_find_match_template_threshold": 0.78,
+  "builder_slot_state_template_threshold": 0.78,
+  "builder_hero_present_template_threshold": 0.72,
   "builder_battle_template_threshold": 0.78,
   "builder_return_home_template_threshold": 0.78,
   "builder_attack_template_area": {
@@ -596,6 +626,21 @@
     "x_max": 26.0,
     "y_min": 65.0,
     "y_max": 96.0
+  },
+  "builder_find_match_template_area": {
+    "x_min": 55.0,
+    "x_max": 84.0,
+    "y_min": 50.0,
+    "y_max": 76.0
+  },
+  "builder_slot_state_area_radius_x": 4.5,
+  "builder_slot_state_area_y_min_offset": -18.0,
+  "builder_slot_state_area_y_max_offset": 2.5,
+  "builder_hero_present_template_area": {
+    "x_min": 0.0,
+    "x_max": 12.0,
+    "y_min": 66.0,
+    "y_max": 100.0
   },
   "builder_battle_template_area": {
     "x_min": 0.0,

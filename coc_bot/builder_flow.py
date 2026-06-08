@@ -8,7 +8,7 @@ from loguru import logger
 from .calibration import CalibrationOverlay
 from .adb_device import AdbDevice
 from .config import BotConfig, RelativePoint
-from .vision import VisionModule
+from .vision import BuilderSlotState, VisionModule
 
 
 class UnsafeBuilderTapError(RuntimeError):
@@ -80,9 +80,28 @@ class BuilderBattleFlow:
             time.sleep(self.config.builder_state_poll_seconds)
 
     def _open_attack(self) -> None:
-        for point in self.config.builder_attack_taps:
-            self._tap(point)
-            time.sleep(self.config.base_search_tap_delay_seconds)
+        if not self.config.builder_attack_taps:
+            raise RuntimeError("builder_attack_taps is empty")
+
+        self._tap(self.config.builder_attack_taps[0])
+        self._wait_and_tap_find_match()
+
+    def _wait_and_tap_find_match(self) -> None:
+        deadline = time.monotonic() + self.config.wait_attack_ready_seconds
+        fallback_point = self.config.builder_attack_taps[min(1, len(self.config.builder_attack_taps) - 1)]
+        while time.monotonic() < deadline:
+            match = self.vision.find_builder_find_match_button()
+            if match is not None:
+                logger.info("Builder Find Match detected at {},{} score={:.3f}", match.x, match.y, match.score)
+                self.device.tap(match.x, match.y)
+                time.sleep(self.config.tap_delay_seconds)
+                return
+            logger.info("Builder Find Match is not visible yet")
+            time.sleep(self.config.builder_state_poll_seconds)
+
+        logger.warning("Builder Find Match was not detected; pressing configured fallback point")
+        self._tap(fallback_point)
+        time.sleep(self.config.tap_delay_seconds)
 
     def _wait_until_builder_battle(self) -> None:
         deadline = time.monotonic() + self.config.wait_battle_seconds
@@ -94,13 +113,37 @@ class BuilderBattleFlow:
         raise RuntimeError("Builder battle screen was not detected after pressing attack")
 
     def _deploy_slots(self) -> None:
-        self._deploy_slots_through_g()
+        self._rapid_deploy_slots_through_g()
+        self._check_builder_slot_states()
 
-        logger.info("Builder activating slots 1-8")
+    def _rapid_deploy_slots_through_g(self) -> None:
+        logger.info("Builder rapid deploy slots 1-8 through G point")
         for index, slot in enumerate(self.config.builder_troop_slots, start=1):
-            logger.info("Builder activate slot {}", index)
+            logger.info("Builder rapid deploy slot {} through G", index)
             self._tap(slot)
+            self._tap_many(self._with_neighbor_points([self.config.builder_deploy_point]))
             time.sleep(self.config.rapid_deploy_tap_delay_seconds)
+
+    def _check_builder_slot_states(self) -> None:
+        if not self.config.builder_slot_state_checks_enabled:
+            return
+
+        for pass_index in range(1, self.config.builder_slot_state_check_passes + 1):
+            logger.info("Builder slot state check pass {}", pass_index)
+            for index, slot in enumerate(self.config.builder_troop_slots, start=1):
+                state = self.vision.detect_builder_slot_state(slot)
+                logger.info("Builder slot {} state: {}", index, state)
+                if state == BuilderSlotState.NOT_DEPLOYED:
+                    logger.warning("Builder slot {} was not deployed; retrying deploy", index)
+                    self._tap(slot)
+                    self._tap_many(self._with_neighbor_points([self.config.builder_deploy_point]))
+                elif state == BuilderSlotState.ABILITY_READY:
+                    logger.info("Builder slot {} ability is ready; activating", index)
+                    self._tap(slot)
+                time.sleep(self.config.rapid_deploy_tap_delay_seconds)
+
+            if pass_index < self.config.builder_slot_state_check_passes:
+                time.sleep(self.config.builder_slot_state_check_delay_seconds)
 
     def _deploy_slots_through_g(self) -> None:
         for index, slot in enumerate(self.config.builder_troop_slots, start=1):
@@ -114,6 +157,7 @@ class BuilderBattleFlow:
         deadline = time.monotonic() + self.config.builder_battle_timeout_seconds
         next_slot_one_at = time.monotonic() + self.config.builder_first_slot_retap_interval_seconds
         next_redeploy_at = time.monotonic() + self.config.builder_redeploy_slots_interval_seconds
+        next_hero_ability_at = time.monotonic() + self.config.builder_hero_ability_interval_seconds
         while time.monotonic() < deadline:
             if self.vision.has_builder_return_home_button():
                 logger.info("Builder Return Home detected; pressing R")
@@ -122,15 +166,23 @@ class BuilderBattleFlow:
                 return
 
             now = time.monotonic()
-            if now >= next_slot_one_at:
+            if self.config.builder_first_slot_retap_enabled and now >= next_slot_one_at:
                 logger.info("Builder retapping slot 1")
                 self._tap(self.config.builder_troop_slots[0])
                 next_slot_one_at = now + self.config.builder_first_slot_retap_interval_seconds
 
-            if now >= next_redeploy_at:
+            if self.config.builder_redeploy_slots_enabled and now >= next_redeploy_at:
                 logger.info("Builder redeploying slots 1-8 through G")
-                self._deploy_slots_through_g()
+                self._rapid_deploy_slots_through_g()
                 next_redeploy_at = now + self.config.builder_redeploy_slots_interval_seconds
+
+            if self.config.builder_hero_ability_enabled and now >= next_hero_ability_at:
+                if self.vision.has_builder_hero():
+                    logger.info("Builder hero detected; activating ability")
+                    self._tap(self.config.builder_hero_ability_point)
+                else:
+                    logger.info("Builder hero not detected; skipping hero ability tap")
+                next_hero_ability_at = now + self.config.builder_hero_ability_interval_seconds
 
             time.sleep(self.config.builder_state_poll_seconds)
         logger.warning("Builder Return Home was not detected before timeout; pressing R anyway")
