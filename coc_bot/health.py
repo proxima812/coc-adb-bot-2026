@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 from loguru import logger
@@ -30,7 +31,18 @@ class HealthChecker:
         if image.width <= 0 or image.height <= 0:
             raise RuntimeError("Health check failed: empty screenshot image")
 
-        state = self.vision.detect_state()
+        state = GameState.UNKNOWN
+        for attempt in range(1, self.config.health_state_attempts + 1):
+            state = self.vision.detect_state()
+            if state != GameState.UNKNOWN:
+                break
+            logger.warning(
+                "Health check state unknown; retrying {}/{}",
+                attempt,
+                self.config.health_state_attempts,
+            )
+            if attempt < self.config.health_state_attempts:
+                time.sleep(self.config.health_state_retry_delay_seconds)
         if state == GameState.UNKNOWN:
             saved = self.vision.save_debug_screenshot("health-unknown-state")
             raise RuntimeError(f"Health check failed: game state is unknown; screenshot={saved}")

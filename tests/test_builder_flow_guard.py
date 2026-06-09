@@ -33,8 +33,11 @@ class FakeVision:
         self.return_home_results: list[bool] = []
         self.slot_state_results: list[str] = []
         self.hero_results: list[bool] = []
+        self.screenshot_calls = 0
+        self.slot_state_screenshots: list[object | None] = []
 
     def screenshot_array(self) -> np.ndarray:
+        self.screenshot_calls += 1
         return np.full((100, 200, 3), 32, dtype=np.uint8)
 
     def has_okay_button(self) -> bool:
@@ -49,7 +52,8 @@ class FakeVision:
     def has_builder_return_home_button(self) -> bool:
         return self.return_home_results.pop(0) if self.return_home_results else False
 
-    def detect_builder_slot_state(self, slot: RelativePoint) -> str:
+    def detect_builder_slot_state(self, slot: RelativePoint, screenshot: object | None = None) -> str:
+        self.slot_state_screenshots.append(screenshot)
         return self.slot_state_results.pop(0) if self.slot_state_results else BuilderSlotState.DEPLOYED
 
     def has_builder_hero(self) -> bool:
@@ -243,6 +247,42 @@ class BuilderFlowGuardTest(unittest.TestCase):
 
         self.assertEqual(device.taps, [(10.94, 88.89), (19.56, 89.44)])
         self.assertEqual(len(device.tap_batches), 1)
+
+    def test_slot_state_check_reuses_single_screenshot_when_no_actions_change_screen(self) -> None:
+        device = FakeDevice()
+        vision = FakeVision()
+        vision.slot_state_results = [BuilderSlotState.DEPLOYED] * 8
+        config = BotConfig(
+            builder_tap_overlay_enabled=False,
+            builder_calibration_enabled=False,
+            builder_slot_state_check_passes=1,
+        )
+        flow = BuilderBattleFlow(device, vision, config)  # type: ignore[arg-type]
+
+        flow._check_builder_slot_states()
+
+        self.assertEqual(vision.screenshot_calls, 1)
+        self.assertEqual(len(vision.slot_state_screenshots), len(config.builder_troop_slots))
+        self.assertTrue(all(screenshot is vision.slot_state_screenshots[0] for screenshot in vision.slot_state_screenshots))
+
+    def test_slot_state_check_refreshes_screenshot_after_builder_action(self) -> None:
+        device = FakeDevice()
+        vision = FakeVision()
+        vision.slot_state_results = [
+            BuilderSlotState.NOT_DEPLOYED,
+            *([BuilderSlotState.DEPLOYED] * 7),
+        ]
+        config = BotConfig(
+            builder_tap_overlay_enabled=False,
+            builder_calibration_enabled=False,
+            builder_slot_state_check_passes=1,
+        )
+        flow = BuilderBattleFlow(device, vision, config)  # type: ignore[arg-type]
+
+        flow._check_builder_slot_states()
+
+        self.assertEqual(vision.screenshot_calls, 2)
+        self.assertIsNot(vision.slot_state_screenshots[0], vision.slot_state_screenshots[1])
 
 
 if __name__ == "__main__":

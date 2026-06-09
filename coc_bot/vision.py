@@ -56,6 +56,7 @@ class VisionModule:
         self.config = config
         self._reader: easyocr.Reader | None = None
         self._template_cache: dict[str, np.ndarray | None] = {}
+        self._template_gray_cache: dict[str, np.ndarray | None] = {}
         self._stable_state = GameState.UNKNOWN
         self._candidate_state = GameState.UNKNOWN
         self._candidate_count = 0
@@ -116,18 +117,20 @@ class VisionModule:
             return GameState.VILLAGE
 
         template_at = time.perf_counter()
-        bottom_text = self._read_screen_text_from_image(screenshot, self.config.state_ocr_bottom_area).lower()
-        if any(marker in bottom_text for marker in ("next", "end battle", "surrender")):
+        battle_text = self._read_screen_text_from_image(screenshot, self.config.state_ocr_battle_area).lower()
+        if any(marker in battle_text for marker in ("next", "end battle", "surrender")):
             logger.debug(
-                "State detected by bottom OCR in {:.1f}ms; screenshot={:.1f}ms template={:.1f}ms",
+                "State detected by battle OCR in {:.1f}ms; screenshot={:.1f}ms template={:.1f}ms",
                 (time.perf_counter() - started_at) * 1000,
                 (screenshot_at - started_at) * 1000,
                 (template_at - screenshot_at) * 1000,
             )
             return GameState.BATTLE
-        if any(marker in bottom_text for marker in ("attack", "shop", "clan", "builder")):
+
+        village_text = self._read_screen_text_from_image(screenshot, self.config.state_ocr_village_area).lower()
+        if any(marker in village_text for marker in ("attack", "shop", "clan", "builder")):
             logger.debug(
-                "State detected by bottom OCR in {:.1f}ms; screenshot={:.1f}ms template={:.1f}ms",
+                "State detected by village OCR in {:.1f}ms; screenshot={:.1f}ms template={:.1f}ms",
                 (time.perf_counter() - started_at) * 1000,
                 (screenshot_at - started_at) * 1000,
                 (template_at - screenshot_at) * 1000,
@@ -308,8 +311,9 @@ class VisionModule:
             self.config.builder_hero_present_template_area,
         )
 
-    def detect_builder_slot_state(self, slot: RelativePoint) -> str:
-        screenshot = self.screenshot_array()
+    def detect_builder_slot_state(self, slot: RelativePoint, screenshot: np.ndarray | None = None) -> str:
+        if screenshot is None:
+            screenshot = self.screenshot_array()
         area = self._builder_slot_state_area(slot)
         if self._find_any_template_in_image(
             screenshot,
@@ -489,12 +493,10 @@ class VisionModule:
         threshold: float,
         search_area: RelativeArea | None = None,
     ) -> bool:
-        for template_path in template_paths:
-            if not template_path:
-                continue
-            if self.find_template(template_path, threshold, search_area) is not None:
-                return True
-        return False
+        if not any(template_paths):
+            return False
+        screenshot = self.screenshot_array()
+        return self._find_any_template_in_image(screenshot, template_paths, threshold, search_area)
 
     def _find_any_template_in_image(
         self,
@@ -526,8 +528,8 @@ class VisionModule:
         threshold: float,
         search_area: RelativeArea | None = None,
     ) -> TemplateMatch | None:
-        template = self._load_template(template_path_value)
-        if template is None:
+        gray_template = self._load_gray_template(template_path_value)
+        if gray_template is None:
             return None
 
         screenshot = cv2.cvtColor(screenshot_rgb, cv2.COLOR_RGB2BGR)
@@ -541,7 +543,7 @@ class VisionModule:
             y_max = round(height * search_area.y_max / 100)
             screenshot = screenshot[offset_y:y_max, offset_x:x_max]
 
-        match = self._best_template_match(screenshot, template)
+        match = self._best_template_match(screenshot, gray_template)
         if match.score < threshold:
             return None
         return TemplateMatch(x=match.x + offset_x, y=match.y + offset_y, score=match.score)
@@ -558,10 +560,21 @@ class VisionModule:
         self._template_cache[template_path_value] = template
         return template
 
-    @staticmethod
-    def _best_template_match(screenshot: np.ndarray, template: np.ndarray) -> TemplateMatch:
-        gray_screen = cv2.cvtColor(screenshot, cv2.COLOR_BGR2GRAY)
+    def _load_gray_template(self, template_path_value: str) -> np.ndarray | None:
+        if template_path_value in self._template_gray_cache:
+            return self._template_gray_cache[template_path_value]
+
+        template = self._load_template(template_path_value)
+        if template is None:
+            self._template_gray_cache[template_path_value] = None
+            return None
         gray_template = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
+        self._template_gray_cache[template_path_value] = gray_template
+        return gray_template
+
+    @staticmethod
+    def _best_template_match(screenshot: np.ndarray, gray_template: np.ndarray) -> TemplateMatch:
+        gray_screen = cv2.cvtColor(screenshot, cv2.COLOR_BGR2GRAY)
         if gray_template.shape[0] > gray_screen.shape[0] or gray_template.shape[1] > gray_screen.shape[1]:
             return TemplateMatch(x=0, y=0, score=0.0)
 

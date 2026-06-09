@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 
 
@@ -84,8 +84,13 @@ class BotConfig:
     deploy_step_delay_seconds: float = 0.15
     rapid_deploy_tap_delay_seconds: float = 0.05
     battle_camera_prepare_enabled: bool = True
-    battle_camera_zoom_out_attempts: int = 1
+    battle_camera_zoom_out_attempts: int = 2
     battle_camera_zoom_out_seconds: float = 0.35
+    battle_camera_pan_enabled: bool = False
+    battle_camera_pan_repeats: int = 1
+    battle_camera_pan_mode: str = "separate"
+    battle_camera_pan_swipe_duration_ms: int = 700
+    battle_camera_pan_settle_seconds: float = 0.35
     battle_camera_center_settle_seconds: float = 0.25
     calibration_overlay_enabled: bool = False
     calibration_overlay_dir: str = "logs/calibration"
@@ -102,7 +107,7 @@ class BotConfig:
     troop_deploy_verify_retries: int = 2
     deploy_neighbor_taps_enabled: bool = True
     deploy_neighbor_offset_percent: float = 0.45
-    fallback_deploy_hold_seconds: float = 1.5
+    fallback_deploy_hold_seconds: float = 0.0
     hero_fallback_deploy_hold_seconds: float = 0.4
     pre_spell_delay_seconds: float = 1.0
     hero_deploy_taps: int = 1
@@ -154,6 +159,8 @@ class BotConfig:
     star_bonus_template_threshold: float = 0.78
     next_template_threshold: float = 0.78
     state_confirmations_required: int = 2
+    health_state_attempts: int = 4
+    health_state_retry_delay_seconds: float = 1.0
     battle_template_area: RelativeArea = field(default_factory=lambda: RelativeArea(x_min=0.0, x_max=22.0, y_min=64.0, y_max=84.0))
     next_template_area: RelativeArea = field(default_factory=lambda: RelativeArea(x_min=78.0, x_max=100.0, y_min=58.0, y_max=86.0))
     attack_template_area: RelativeArea = field(default_factory=lambda: RelativeArea(x_min=0.0, x_max=36.0, y_min=66.0, y_max=96.0))
@@ -164,53 +171,43 @@ class BotConfig:
     g_key_deploy_presses: int = 5
     g_key_deploy_press_delay_seconds: float = 0.05
     deploy_slot_detection_area: RelativeArea = field(default_factory=lambda: RelativeArea(x_min=0.0, x_max=100.0, y_min=67.0, y_max=100.0))
-    state_ocr_bottom_area: RelativeArea = field(default_factory=lambda: RelativeArea(x_min=0.0, x_max=100.0, y_min=58.0, y_max=100.0))
+    state_ocr_bottom_area: RelativeArea = field(default_factory=lambda: RelativeArea(x_min=0.0, x_max=97.5, y_min=64.36, y_max=100.0))
+    state_ocr_battle_area: RelativeArea = field(default_factory=lambda: RelativeArea(x_min=0.0, x_max=97.5, y_min=64.36, y_max=100.0))
+    state_ocr_village_area: RelativeArea = field(default_factory=lambda: RelativeArea(x_min=0.0, x_max=97.5, y_min=67.56, y_max=100.0))
     state_ocr_top_left_area: RelativeArea = field(default_factory=lambda: RelativeArea(x_min=0.0, x_max=38.0, y_min=0.0, y_max=45.0))
-    primary_deploy_point: RelativePoint = field(default_factory=lambda: RelativePoint(x=72.9, y=20.47))
+    primary_deploy_point: RelativePoint = field(default_factory=lambda: RelativePoint(x=28.56, y=32.11))
     fallback_deploy_points: list[RelativePoint] = field(
         default_factory=lambda: [
-            RelativePoint(x=72.9, y=20.47),
-            RelativePoint(x=14.91, y=64.83),
-            RelativePoint(x=26.25, y=19.47),
-            RelativePoint(x=74.91, y=74.22),
-            RelativePoint(x=80.24, y=63.72),
-            RelativePoint(x=82.81, y=34.33),
-            RelativePoint(x=19.23, y=33.32),
-            RelativePoint(x=11.71, y=52.43),
-            RelativePoint(x=59.36, y=4.72),
-            RelativePoint(x=41.24, y=4.27),
-            RelativePoint(x=34.22, y=18.69),
-            RelativePoint(x=60.11, y=79.25),
-            RelativePoint(x=88.82, y=47.96),
-            RelativePoint(x=21.62, y=67.62),
-            RelativePoint(x=10.08, y=40.59),
-            RelativePoint(x=36.97, y=11.09),
-            RelativePoint(x=32.46, y=11.76),
-            RelativePoint(x=65.69, y=11.87),
-            RelativePoint(x=85.75, y=60.25),
+            RelativePoint(x=28.56, y=32.11),
+            RelativePoint(x=39.44, y=19.67),
+            RelativePoint(x=60.44, y=24.0),
+            RelativePoint(x=75.81, y=44.0),
+            RelativePoint(x=86.31, y=57.78),
+            RelativePoint(x=17.63, y=46.11),
+            RelativePoint(x=77.44, y=72.0),
+            RelativePoint(x=12.56, y=65.89),
         ]
     )
     default_deploy_points: list[RelativePoint] = field(
         default_factory=lambda: [
-            RelativePoint(x=72.9, y=20.47),
+            RelativePoint(x=28.56, y=32.11),
         ]
     )
     troop_deploy_points: list[RelativePoint] = field(
         default_factory=lambda: [
-            RelativePoint(x=14.91, y=64.83),
-            RelativePoint(x=26.25, y=19.47),
-            RelativePoint(x=74.91, y=74.22),
-            RelativePoint(x=80.24, y=63.72),
-            RelativePoint(x=82.81, y=34.33),
-            RelativePoint(x=19.23, y=33.32),
+            RelativePoint(x=28.56, y=32.11),
+            RelativePoint(x=39.44, y=19.67),
+            RelativePoint(x=60.44, y=24.0),
+            RelativePoint(x=75.81, y=44.0),
+            RelativePoint(x=86.31, y=57.78),
+            RelativePoint(x=17.63, y=46.11),
+            RelativePoint(x=77.44, y=72.0),
+            RelativePoint(x=12.56, y=65.89),
         ]
     )
     hero_deploy_points: list[RelativePoint] = field(
         default_factory=lambda: [
-            RelativePoint(x=72.9, y=20.47),
-            RelativePoint(x=14.91, y=64.83),
-            RelativePoint(x=26.25, y=19.47),
-            RelativePoint(x=74.91, y=74.22),
+            RelativePoint(x=28.56, y=32.11),
         ]
     )
     spell_deploy_area: RelativeArea = field(default_factory=lambda: RelativeArea(x_min=35.0, x_max=65.0, y_min=35.0, y_max=65.0))
@@ -218,19 +215,18 @@ class BotConfig:
         default_factory=lambda: [
             DeployStep(
                 name="new_troop_1",
-                point=RelativePoint(x=11.06, y=89.78),
+                point=RelativePoint(x=6.44, y=95.11),
                 deploy_taps=1,
-                deploy_hold_seconds=3.0,
-                deploy_point_group="primary",
+                deploy_point_group="troops",
             ),
-            DeployStep(name="battle_machine", point=RelativePoint(x=19.93, y=89.41), deploy_taps=1),
-            DeployStep(name="hero_3", point=RelativePoint(x=27.13, y=89.64), deploy_taps=1, deploy_point_group="heroes"),
-            DeployStep(name="hero_4", point=RelativePoint(x=35.09, y=90.42), deploy_taps=1, deploy_point_group="heroes"),
-            DeployStep(name="hero_5", point=RelativePoint(x=42.49, y=89.86), deploy_taps=1, deploy_point_group="heroes"),
-            DeployStep(name="hero_6", point=RelativePoint(x=49.95, y=90.08), deploy_taps=1, deploy_point_group="heroes"),
+            DeployStep(name="battle_machine", point=RelativePoint(x=15.31, y=85.89), deploy_taps=1),
+            DeployStep(name="hero_3", point=RelativePoint(x=23.31, y=85.33), deploy_taps=1),
+            DeployStep(name="hero_4", point=RelativePoint(x=31.13, y=85.11), deploy_taps=1),
+            DeployStep(name="hero_5", point=RelativePoint(x=38.44, y=85.56), deploy_taps=1),
+            DeployStep(name="hero_6", point=RelativePoint(x=45.5, y=85.33), deploy_taps=1),
             DeployStep(
                 name="spells",
-                point=RelativePoint(x=59.61, y=89.75),
+                point=RelativePoint(x=54.19, y=85.67),
                 random_deploy_area="spells",
                 random_taps_min=11,
                 random_taps_max=13,
@@ -251,12 +247,12 @@ class BotConfig:
     )
     base_attack_taps: list[RelativePoint] = field(
         default_factory=lambda: [
-            RelativePoint(x=6.6, y=88.1),
-            RelativePoint(x=16.85, y=73.83),
-            RelativePoint(x=88.64, y=89.13),
+            RelativePoint(x=6.88, y=87.33),
+            RelativePoint(x=16.75, y=73.22),
+            RelativePoint(x=89.56, y=88.67),
         ]
     )
-    troop_deploy_point: RelativePoint = field(default_factory=lambda: RelativePoint(x=72.9, y=20.47))
+    troop_deploy_point: RelativePoint = field(default_factory=lambda: RelativePoint(x=28.56, y=32.11))
     end_battle_point: RelativePoint = field(default_factory=lambda: RelativePoint(x=6.88, y=74.83))
     confirm_end_point: RelativePoint = field(default_factory=lambda: RelativePoint(x=60.8, y=64.33))
     return_home_point: RelativePoint = field(default_factory=lambda: RelativePoint(x=49.95, y=85.22))
@@ -367,6 +363,10 @@ def _area(raw: dict[str, float] | RelativeArea) -> RelativeArea:
 
 def _config_from_dict(raw: dict) -> BotConfig:
     data = dict(raw)
+    valid_keys = {field.name for field in fields(BotConfig)}
+    unknown_keys = sorted(set(data) - valid_keys)
+    if unknown_keys:
+        raise ValueError(f"Unknown bot config key(s): {', '.join(unknown_keys)}")
     if "base_attack_taps" in data:
         data["base_attack_taps"] = [_point(item) for item in data["base_attack_taps"]]
     if "builder_attack_taps" in data:
@@ -423,6 +423,8 @@ def _config_from_dict(raw: dict) -> BotConfig:
         "deploy_slot_detection_area",
         "troops_deployed_detection_area",
         "state_ocr_bottom_area",
+        "state_ocr_battle_area",
+        "state_ocr_village_area",
         "state_ocr_top_left_area",
         "okay_button_detection_area",
         "builder_attack_template_area",
@@ -496,6 +498,8 @@ def validate_config(config: BotConfig) -> None:
         errors.append("deploy_neighbor_offset_percent must be >= 0")
     if config.state_confirmations_required < 1:
         errors.append("state_confirmations_required must be >= 1")
+    if config.health_state_attempts < 1:
+        errors.append("health_state_attempts must be >= 1")
     if config.auto_deploy_boundary_points < 1:
         errors.append("auto_deploy_boundary_points must be >= 1")
     if config.auto_deploy_boundary_min_points < 1:
@@ -504,6 +508,12 @@ def validate_config(config: BotConfig) -> None:
         errors.append("auto_deploy_scan_swipe_duration_ms must be >= 0")
     if config.battle_camera_zoom_out_attempts < 0:
         errors.append("battle_camera_zoom_out_attempts must be >= 0")
+    if config.battle_camera_pan_repeats < 0:
+        errors.append("battle_camera_pan_repeats must be >= 0")
+    if config.battle_camera_pan_swipe_duration_ms < 0:
+        errors.append("battle_camera_pan_swipe_duration_ms must be >= 0")
+    if config.battle_camera_pan_mode not in ("separate", "diagonal"):
+        errors.append(f"battle_camera_pan_mode must be separate or diagonal, got {config.battle_camera_pan_mode}")
     if config.calibration_overlay_grid_step_percent <= 0 or config.calibration_overlay_grid_step_percent > 100:
         errors.append("calibration_overlay_grid_step_percent must be > 0 and <= 100")
 
@@ -517,6 +527,8 @@ def validate_config(config: BotConfig) -> None:
         "deploy_slot_detection_area",
         "troops_deployed_detection_area",
         "state_ocr_bottom_area",
+        "state_ocr_battle_area",
+        "state_ocr_village_area",
         "state_ocr_top_left_area",
         "okay_button_detection_area",
         "builder_attack_template_area",
@@ -533,6 +545,7 @@ def validate_config(config: BotConfig) -> None:
         "cycle_delay_seconds",
         "next_search_delay_seconds",
         "restart_delay_seconds",
+        "health_state_retry_delay_seconds",
         "wait_battle_seconds",
         "wait_attack_ready_seconds",
         "wait_after_deploy_seconds",
@@ -540,6 +553,7 @@ def validate_config(config: BotConfig) -> None:
         "deploy_step_delay_seconds",
         "rapid_deploy_tap_delay_seconds",
         "battle_camera_zoom_out_seconds",
+        "battle_camera_pan_settle_seconds",
         "battle_camera_center_settle_seconds",
         "calibration_overlay_grid_step_percent",
         "auto_deploy_scan_settle_seconds",
@@ -591,8 +605,8 @@ def validate_config(config: BotConfig) -> None:
         if optional_template and not Path(optional_template).exists():
             errors.append(f"template not found: {optional_template}")
 
-    if len(config.fallback_deploy_points) != 19:
-        errors.append(f"fallback_deploy_points should contain 19 G points, got {len(config.fallback_deploy_points)}")
+    if not config.fallback_deploy_points:
+        errors.append("fallback_deploy_points should contain at least one G point")
     if config.deploy_mode not in ("coordinates", "templates", "g_key"):
         errors.append(f"deploy_mode must be coordinates, templates, or g_key, got {config.deploy_mode}")
     if config.bot_mode not in ("home", "builder"):

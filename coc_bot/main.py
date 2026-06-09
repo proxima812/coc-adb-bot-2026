@@ -92,7 +92,7 @@ def main() -> None:
     device.start_app(config.package_name)
 
     if bot_mode == "builder":
-        run_builder_loop(builder_flow, recovery, vision, config, args.max_attacks)
+        run_builder_loop(builder_flow, health, recovery, vision, config, args.max_attacks)
         return
 
     if args.account_cycle:
@@ -198,6 +198,7 @@ def run_account_cycle(
 
 def run_builder_loop(
     builder_flow: BuilderBattleFlow,
+    health: HealthChecker,
     recovery: RecoveryModule,
     vision: VisionModule,
     config: BotConfig,
@@ -206,6 +207,7 @@ def run_builder_loop(
     completed_attacks = 0
     while True:
         try:
+            health.check_before_cycle()
             builder_flow.run_once()
             completed_attacks += 1
             if max_attacks:

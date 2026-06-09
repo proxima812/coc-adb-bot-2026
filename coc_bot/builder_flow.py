@@ -130,16 +130,21 @@ class BuilderBattleFlow:
 
         for pass_index in range(1, self.config.builder_slot_state_check_passes + 1):
             logger.info("Builder slot state check pass {}", pass_index)
+            screenshot = None
             for index, slot in enumerate(self.config.builder_troop_slots, start=1):
-                state = self.vision.detect_builder_slot_state(slot)
+                if screenshot is None:
+                    screenshot = self.vision.screenshot_array()
+                state = self.vision.detect_builder_slot_state(slot, screenshot=screenshot)
                 logger.info("Builder slot {} state: {}", index, state)
                 if state == BuilderSlotState.NOT_DEPLOYED:
                     logger.warning("Builder slot {} was not deployed; retrying deploy", index)
                     self._tap(slot)
                     self._tap_many(self._with_neighbor_points([self.config.builder_deploy_point]))
+                    screenshot = None
                 elif state == BuilderSlotState.ABILITY_READY:
                     logger.info("Builder slot {} ability is ready; activating", index)
                     self._tap(slot)
+                    screenshot = None
                 time.sleep(self.config.rapid_deploy_tap_delay_seconds)
 
             if pass_index < self.config.builder_slot_state_check_passes:

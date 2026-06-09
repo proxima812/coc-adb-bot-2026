@@ -133,10 +133,11 @@ class BattleFlow:
 
         logger.info("Deploying configured coordinate plan")
         for step in self.config.deploy_plan:
-            if step.random_deploy_area == "spells" and self.config.pre_spell_delay_seconds > 0:
+            if step.random_deploy_area == "spells":
                 self._activate_hero_abilities()
-                logger.info("Waiting before spells: {} seconds", self.config.pre_spell_delay_seconds)
-                time.sleep(self.config.pre_spell_delay_seconds)
+                if self.config.pre_spell_delay_seconds > 0:
+                    logger.info("Waiting before spells: {} seconds", self.config.pre_spell_delay_seconds)
+                    time.sleep(self.config.pre_spell_delay_seconds)
 
             if not self.config.deploy_slot_detection_area.contains(step.point):
                 logger.warning(
@@ -193,10 +194,30 @@ class BattleFlow:
         if not self.config.battle_camera_prepare_enabled:
             return
         logger.info(
-            "Preparing battle camera: ctrl_wheel_zoom_out_ticks={}",
+            "Preparing battle camera: adb_zoom_out_attempts={} pan_enabled={} pan_repeats={}",
             self.config.battle_camera_zoom_out_attempts,
+            self.config.battle_camera_pan_enabled,
+            self.config.battle_camera_pan_repeats,
         )
-        self.device.ctrl_mouse_wheel_zoom_out(self.config.battle_camera_zoom_out_attempts)
+        for attempt in range(1, self.config.battle_camera_zoom_out_attempts + 1):
+            logger.info("Battle camera zoom-out attempt {}/{}", attempt, self.config.battle_camera_zoom_out_attempts)
+            self.device.pinch_zoom_out_percent(self.config.battle_camera_zoom_out_seconds)
+            time.sleep(self.config.battle_camera_pan_settle_seconds)
+        if self.config.battle_camera_pan_enabled:
+            if self.config.battle_camera_pan_mode == "diagonal":
+                for attempt in range(1, self.config.battle_camera_pan_repeats + 1):
+                    logger.info("Battle camera diagonal pan up-right attempt {}/{}", attempt, self.config.battle_camera_pan_repeats)
+                    self.device.swipe_percent(72.0, 35.0, 25.0, 82.0, self.config.battle_camera_pan_swipe_duration_ms)
+                    time.sleep(self.config.battle_camera_pan_settle_seconds)
+            else:
+                for attempt in range(1, self.config.battle_camera_pan_repeats + 1):
+                    logger.info("Battle camera pan up attempt {}/{}", attempt, self.config.battle_camera_pan_repeats)
+                    self.device.swipe_percent(50.0, 30.0, 50.0, 82.0, self.config.battle_camera_pan_swipe_duration_ms)
+                    time.sleep(self.config.battle_camera_pan_settle_seconds)
+                for attempt in range(1, self.config.battle_camera_pan_repeats + 1):
+                    logger.info("Battle camera pan right attempt {}/{}", attempt, self.config.battle_camera_pan_repeats)
+                    self.device.swipe_percent(72.0, 50.0, 25.0, 50.0, self.config.battle_camera_pan_swipe_duration_ms)
+                    time.sleep(self.config.battle_camera_pan_settle_seconds)
         time.sleep(self.config.battle_camera_center_settle_seconds)
         if self.config.calibration_overlay_enabled and self.config.calibration_overlay_after_camera_prepare:
             screenshot = self.vision.screenshot_array()
@@ -282,7 +303,7 @@ class BattleFlow:
         self._verify_troops_deployed(step)
 
     def _fast_deploy_points_for_step(self, step: DeployStep) -> list[tuple[float, float]]:
-        return self._with_neighbor_points(self.config.fallback_deploy_points)
+        return self._with_neighbor_points(self._deploy_points_for_step(step.deploy_point_group))
 
     def _with_neighbor_points(self, points: list[RelativePoint]) -> list[tuple[float, float]]:
         if not self.config.deploy_neighbor_taps_enabled or self.config.deploy_neighbor_offset_percent <= 0:
