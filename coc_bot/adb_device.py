@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import ctypes
+import queue
 import subprocess
+import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -13,12 +16,200 @@ class AdbError(RuntimeError):
     pass
 
 
+class _PersistentAdbShell:
+    """Долгоживущий процесс `adb shell` с stdin/stdout-каналом.
+
+    Каждая команда выполняется внутри уже запущенного shell, что экономит
+    30–80 мс на каждом tap/swipe/keyevent по сравнению с отдельным
+    запуском `adb.exe`. Возвращает stdout команды или поднимает AdbError.
+
+    Реализация Windows-совместима (без `select` на пайпах): фоновый поток
+    читает stdout построчно и кладёт в очередь, exec() ожидает sentinel-маркер.
+    """
+
+    SENTINEL_PREFIX = "__ADB_DONE__"
+
+    def __init__(self, adb_path: str, serial: str) -> None:
+        self.adb_path = adb_path
+        self.serial = serial
+        self._proc: subprocess.Popen[str] | None = None
+        self._reader_thread: threading.Thread | None = None
+        self._stdout_queue: queue.Queue[str | None] = queue.Queue()
+        self._lock = threading.RLock()
+        self._disabled = False  # на фатальной ошибке отключаемся → fallback на subprocess.run
+
+    @property
+    def disabled(self) -> bool:
+        return self._disabled
+
+    def is_alive(self) -> bool:
+        return self._proc is not None and self._proc.poll() is None
+
+    def start(self) -> None:
+        with self._lock:
+            if self._disabled or self.is_alive():
+                return
+            try:
+                self._proc = subprocess.Popen(
+                    [self.adb_path, "-s", self.serial, "shell"],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    encoding="utf-8",
+                    errors="replace",
+                )
+            except OSError as exc:
+                self._disabled = True
+                raise AdbError(f"Unable to start persistent ADB shell: {exc}") from exc
+            self._stdout_queue = queue.Queue()
+            self._reader_thread = threading.Thread(
+                target=self._reader_loop, name="adb-shell-reader", daemon=True
+            )
+            self._reader_thread.start()
+            logger.debug("Persistent ADB shell started (pid={})", self._proc.pid)
+
+    def _reader_loop(self) -> None:
+        proc = self._proc
+        if proc is None or proc.stdout is None:
+            return
+        try:
+            for line in proc.stdout:
+                self._stdout_queue.put(line)
+        except (OSError, ValueError):
+            pass
+        finally:
+            self._stdout_queue.put(None)  # признак EOF
+
+    def exec(self, command: str, timeout: float = 5.0) -> str:
+        with self._lock:
+            if self._disabled:
+                raise AdbError("persistent shell disabled")
+            if not self.is_alive():
+                self.start()
+            proc = self._proc
+            if proc is None or proc.stdin is None:
+                self._mark_failed()
+                raise AdbError("persistent shell is not initialized")
+
+            marker = f"{self.SENTINEL_PREFIX}{uuid.uuid4().hex[:10]}"
+            payload = f"{command}; echo {marker}:$?\n"
+            try:
+                proc.stdin.write(payload)
+                proc.stdin.flush()
+            except (BrokenPipeError, OSError) as exc:
+                self._mark_failed()
+                raise AdbError(f"persistent shell stdin broken: {exc}") from exc
+
+            deadline = time.monotonic() + timeout
+            collected: list[str] = []
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    self._mark_failed()
+                    raise AdbError(f"persistent shell timeout on: {command!r}")
+                try:
+                    line = self._stdout_queue.get(timeout=remaining)
+                except queue.Empty:
+                    self._mark_failed()
+                    raise AdbError(f"persistent shell timeout on: {command!r}")
+                if line is None:
+                    self._mark_failed()
+                    raise AdbError(f"persistent shell EOF on: {command!r}")
+                stripped = line.rstrip("\r\n")
+                if stripped.startswith(marker):
+                    _, _, code_text = stripped.partition(":")
+                    try:
+                        rc = int(code_text.strip())
+                    except ValueError:
+                        rc = 1
+                    output = "".join(collected)
+                    if rc != 0:
+                        raise AdbError(f"persistent shell rc={rc}: {output.strip() or command}")
+                    return output
+                collected.append(line)
+
+    def _mark_failed(self) -> None:
+        """Аварийное закрытие shell — переходим в fallback на subprocess.run."""
+        self._disabled = True
+        self.close(reason="failure")
+
+    def close(self, reason: str = "shutdown") -> None:
+        with self._lock:
+            proc = self._proc
+            self._proc = None
+            if proc is None:
+                return
+            logger.debug("Closing persistent ADB shell ({})", reason)
+            try:
+                if proc.stdin is not None and not proc.stdin.closed:
+                    try:
+                        proc.stdin.write("exit\n")
+                        proc.stdin.flush()
+                    except (OSError, BrokenPipeError):
+                        pass
+                    proc.stdin.close()
+                proc.wait(timeout=2)
+            except (subprocess.TimeoutExpired, OSError):
+                proc.kill()
+                try:
+                    proc.wait(timeout=2)
+                except (subprocess.TimeoutExpired, OSError):
+                    pass
+
+
 class AdbDevice:
-    def __init__(self, adb_path: str, serial: str, dry_run: bool = False) -> None:
+    def __init__(
+        self,
+        adb_path: str,
+        serial: str,
+        dry_run: bool = False,
+        persistent_shell: bool = True,
+    ) -> None:
         self.adb_path = adb_path
         self.serial = serial
         self.dry_run = dry_run
         self._screen_size: tuple[int, int] | None = None
+        self._persistent_shell_enabled = persistent_shell and not dry_run
+        self._shell: _PersistentAdbShell | None = None
+
+    # ---------- persistent shell ----------
+
+    def _ensure_shell(self) -> _PersistentAdbShell | None:
+        """Возвращает живой shell или None, если persistent-режим выключен/упал."""
+        if not self._persistent_shell_enabled:
+            return None
+        if self._shell is None:
+            adb = Path(self.adb_path)
+            if not adb.exists():
+                return None
+            self._shell = _PersistentAdbShell(str(adb), self.serial)
+        if self._shell.disabled:
+            return None
+        try:
+            self._shell.start()
+        except AdbError as exc:
+            logger.warning("Persistent ADB shell unavailable, falling back: {}", exc)
+            return None
+        return self._shell
+
+    def _shell_exec(self, command: str, timeout: float = 5.0) -> str | None:
+        """Выполнить команду через persistent shell. None → нужно использовать fallback."""
+        shell = self._ensure_shell()
+        if shell is None:
+            return None
+        try:
+            return shell.exec(command, timeout=timeout)
+        except AdbError as exc:
+            logger.warning("Persistent shell failed ({}); falling back to subprocess", exc)
+            return None
+
+    def close_shell(self) -> None:
+        """Закрыть persistent shell (вызывать перед recovery/restart adb)."""
+        if self._shell is not None:
+            self._shell.close()
+            self._shell = None
 
     def _action_log(self, message: str, *args: object) -> None:
         logger.bind(action=True).info(message, *args)
@@ -73,6 +264,8 @@ class AdbDevice:
         return result.stdout
 
     def connect(self) -> None:
+        # Старый persistent shell после reconnect становится мёртвым — закрываем его.
+        self.close_shell()
         self._action_log("ADB connect requested: serial={}", self.serial)
         adb = Path(self.adb_path)
         if not adb.exists():
@@ -96,6 +289,8 @@ class AdbDevice:
         adb = Path(self.adb_path)
         if not adb.exists():
             return
+        # ADB-сервер уходит → persistent shell тоже мёртв.
+        self.close_shell()
         self._action_log("ADB kill-server requested")
         subprocess.run([str(adb), "kill-server"], capture_output=True, timeout=10)
         self._screen_size = None
@@ -118,6 +313,8 @@ class AdbDevice:
         if self.dry_run:
             logger.info("DRY-RUN tap {},{}", x, y)
             return
+        if self._shell_exec(f"input tap {int(x)} {int(y)}", timeout=5.0) is not None:
+            return
         self.run("shell", "input", "tap", str(x), str(y), timeout=10)
 
     def swipe(self, x1: int, y1: int, x2: int, y2: int, duration_ms: int) -> None:
@@ -132,6 +329,13 @@ class AdbDevice:
         )
         if self.dry_run:
             logger.info("DRY-RUN swipe {},{} -> {},{} {}ms", x1, y1, x2, y2, duration_ms)
+            return
+        # Таймаут shell — длительность swipe + запас (300 мс).
+        shell_timeout = max(5.0, duration_ms / 1000 + 0.3)
+        command = (
+            f"input swipe {int(x1)} {int(y1)} {int(x2)} {int(y2)} {int(duration_ms)}"
+        )
+        if self._shell_exec(command, timeout=shell_timeout) is not None:
             return
         self.run(
             "shell",
@@ -387,12 +591,18 @@ class AdbDevice:
             logger.info("DRY-RUN text {}", value)
             return
         escaped = value.replace(" ", "%s")
+        # Текст с спецсимволами надёжнее отправлять одноразовым процессом.
+        if all(ch.isalnum() or ch == "%" for ch in escaped):
+            if self._shell_exec(f"input text {escaped}", timeout=5.0) is not None:
+                return
         self.run("shell", "input", "text", escaped, timeout=10)
 
     def keyevent(self, keycode: int) -> None:
         self._action_log("ADB keyevent: keycode={} dry_run={}", keycode, self.dry_run)
         if self.dry_run:
             logger.info("DRY-RUN keyevent {}", keycode)
+            return
+        if self._shell_exec(f"input keyevent {int(keycode)}", timeout=5.0) is not None:
             return
         self.run("shell", "input", "keyevent", str(keycode), timeout=10)
 

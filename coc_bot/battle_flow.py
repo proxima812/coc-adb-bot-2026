@@ -38,7 +38,11 @@ class BattleFlow:
         self.dismiss_popups()
 
     def dismiss_popups(self) -> bool:
-        if self.vision.has_okay_button():
+        # Один кадр на оба template-чека (раньше — два независимых screencap).
+        with self.vision.frame():
+            has_okay = self.vision.has_okay_button()
+            has_popup = False if has_okay else self.vision.has_configured_popup()
+        if has_okay:
             logger.info(
                 "Okay button detected; pressing configured point {},{}",
                 self.config.okay_button_point.x,
@@ -48,7 +52,7 @@ class BattleFlow:
             time.sleep(self.config.tap_delay_seconds)
             return True
 
-        if self.vision.has_configured_popup():
+        if has_popup:
             logger.info(
                 "Configured popup detected; pressing Okay point {},{}",
                 self.config.okay_button_point.x,

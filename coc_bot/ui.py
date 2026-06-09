@@ -1,15 +1,43 @@
 from __future__ import annotations
 
+import queue
 import subprocess
 import sys
+import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
-from tkinter import BOTH, END, LEFT, NORMAL, RIGHT, X, Y, StringVar, Tk
-from tkinter.scrolledtext import ScrolledText
-from tkinter.ttk import Button, Frame, Label, Radiobutton, Style
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # pragma: no cover — только для type hints
+    import customtkinter as ctk
+else:  # рантайм-импорт делается лениво в BotControlUi.__init__, чтобы
+    # модуль (и BotProcessController) импортировались без GUI-зависимости.
+    ctk = None  # type: ignore[assignment]
+
+
+def _require_ctk() -> Any:
+    """Ленивый импорт CustomTkinter с понятным сообщением об ошибке."""
+    global ctk
+    if ctk is None:
+        try:
+            import customtkinter as _ctk
+        except ImportError as exc:  # pragma: no cover
+            raise RuntimeError(
+                "CustomTkinter не установлен. Запусти `pip install customtkinter` или "
+                "переустанови зависимости: `pip install -r requirements.txt`."
+            ) from exc
+        ctk = _ctk
+    return ctk
 
 
 class UiTheme:
+    """Палитра приложения.
+
+    Оставлена как простой namespace: пользовательский CustomTkinter-стиль
+    использует те же ключевые цвета, плюс легко подменяется в тестах/snippets.
+    """
+
     background = "#0b0d12"
     panel = "#151821"
     panel_alt = "#1c2030"
@@ -22,12 +50,14 @@ class UiTheme:
     subtle = "#5f6877"
     accent = "#6366f1"
     accent_hover = "#7c7ff5"
-    accent_soft = "#2a2750"
+    accent_pressed = "#4f52d6"
     success = "#22c55e"
     success_soft = "#13321e"
+    success_text = "#a7f3c5"
     warning = "#f59e0b"
     error = "#ef4444"
     error_soft = "#3a1c20"
+    error_text = "#ffd5d5"
     info = "#60a5fa"
     debug = "#a78bfa"
     ui = "#22d3ee"
@@ -37,14 +67,18 @@ class UiTheme:
 
 
 class BotProcessController:
+    """Управление дочерним процессом бота. API стабилен — покрыт тестами."""
+
     def __init__(self, process_factory: Callable[[int, bool, str], subprocess.Popen] | None = None) -> None:
         self._process_factory = process_factory or self._default_process_factory
         self._process: subprocess.Popen | None = None
+        self._last_exit_code: int | None = None
 
     def start(self, max_attacks: int = 0, account_cycle: bool = False, bot_mode: str = "home") -> bool:
         if self.is_running():
             return False
         self._process = self._process_factory(max_attacks, account_cycle, bot_mode)
+        self._last_exit_code = None
         return True
 
     def stop(self) -> bool:
@@ -58,6 +92,7 @@ class BotProcessController:
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=5)
+        self._last_exit_code = process.returncode
         self._process = None
         return True
 
@@ -78,246 +113,498 @@ class BotProcessController:
     def is_running(self) -> bool:
         return self._process is not None and self._process.poll() is None
 
+    def has_crashed(self) -> bool:
+        """True, если процесс был запущен, но завершился сам (не через stop())."""
+        if self._process is None:
+            return False
+        code = self._process.poll()
+        if code is None:
+            return False
+        # Процесс завершён без вызова stop(), оставшийся handle указывает на крэш.
+        self._last_exit_code = code
+        return True
+
+    def collect_crashed(self) -> int | None:
+        """Сброс хэндла процесса после регистрации крэша."""
+        if self._process is None or self._process.poll() is None:
+            return None
+        code = self._process.returncode
+        self._last_exit_code = code
+        self._process = None
+        return code
+
+    def pid(self) -> int | None:
+        if self._process is None:
+            return None
+        return self._process.pid
+
+    @property
+    def last_exit_code(self) -> int | None:
+        return self._last_exit_code
+
     @staticmethod
     def _default_process_factory(max_attacks: int = 0, account_cycle: bool = False, bot_mode: str = "home") -> subprocess.Popen:
         root = Path(__file__).resolve().parent.parent
-        log_dir = root / "logs"
-        log_dir.mkdir(exist_ok=True)
-        output = (log_dir / "ui-process.log").open("a", encoding="utf-8")
         command = [sys.executable, "-m", "coc_bot.main", "--bot-mode", bot_mode]
         if account_cycle:
             command.append("--account-cycle")
         if max_attacks:
             command.extend(["--max-attacks", str(max_attacks)])
+        # Stdout/stderr дублируют loguru → logs/bot.log; локальный лог-файл больше не нужен.
+        creationflags = 0
+        if sys.platform == "win32":
+            creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
         return subprocess.Popen(
             command,
             cwd=root,
-            stdout=output,
-            stderr=subprocess.STDOUT,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             text=True,
+            creationflags=creationflags,
         )
+
+
+class _LogTailer:
+    """Фоновый поток, читающий файл-хвост и складывающий чанки в очередь.
+
+    UI забирает чанки с помощью `drain()` без блокировок основного цикла.
+    """
+
+    def __init__(self, log_path: Path, poll_interval: float = 0.5) -> None:
+        self.log_path = log_path
+        self.poll_interval = poll_interval
+        self._queue: queue.Queue[str] = queue.Queue()
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._last_size = 0
+
+    def start(self) -> None:
+        if self._thread is not None:
+            return
+        self._last_size = self.log_path.stat().st_size if self.log_path.exists() else 0
+        self._thread = threading.Thread(target=self._run, name="ui-log-tail", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        thread = self._thread
+        self._thread = None
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=1.0)
+
+    def reset(self) -> None:
+        self._last_size = self.log_path.stat().st_size if self.log_path.exists() else 0
+
+    def drain(self) -> list[str]:
+        chunks: list[str] = []
+        while True:
+            try:
+                chunks.append(self._queue.get_nowait())
+            except queue.Empty:
+                break
+        return chunks
+
+    def _run(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                if self.log_path.exists():
+                    size = self.log_path.stat().st_size
+                    if size < self._last_size:
+                        # Ротация / пересоздание файла.
+                        self._last_size = 0
+                    if size > self._last_size:
+                        with self.log_path.open("r", encoding="utf-8", errors="replace") as handle:
+                            handle.seek(self._last_size)
+                            chunk = handle.read()
+                            self._last_size = handle.tell()
+                        if chunk:
+                            self._queue.put(chunk)
+            except OSError:
+                # Файл занят/удалён — попробуем на следующей итерации.
+                pass
+            self._stop_event.wait(self.poll_interval)
 
 
 class BotControlUi:
-    SIDEBAR_WIDTH = 320
+    """Главное окно панели управления ботом, построенное на CustomTkinter."""
 
-    def __init__(self, controller: BotProcessController | None = None, log_path: Path | None = None) -> None:
+    SIDEBAR_WIDTH = 320
+    LOG_POLL_MS = 250
+    STATUS_POLL_MS = 1000
+
+    def __init__(
+        self,
+        controller: BotProcessController | None = None,
+        log_path: Path | None = None,
+        accounts: tuple[str, ...] = ("proxima", "yung_proxima", "old_proxima"),
+    ) -> None:
         self.theme = UiTheme()
-        self.root = Tk()
+        self.accounts = accounts
+
+        _require_ctk()
+        ctk.set_appearance_mode("dark")
+        # Палитра приложения — используем «dark-blue» как базу, накладываем поверх свои цвета.
+        ctk.set_default_color_theme("dark-blue")
+
+        self.root = ctk.CTk()
         self.root.title("COC Bot ADB")
-        self.root.geometry("1120x720")
-        self.root.minsize(900, 560)
-        self.root.configure(bg=self.theme.background)
-        self._configure_styles()
+        self.root.geometry("1180x740")
+        self.root.minsize(960, 600)
+        self.root.configure(fg_color=self.theme.background)
 
         self.controller = controller or BotProcessController()
         self.log_path = log_path or Path("logs/bot.log")
-        self._last_log_size = 0
-        self.bot_mode = StringVar(value="home")
+        self._tailer = _LogTailer(self.log_path)
+        self._stop_in_progress = False
+        self._was_running = False
 
-        shell = Frame(self.root, style="App.TFrame", padding=(20, 20))
-        shell.pack(fill=BOTH, expand=True)
+        self.bot_mode = ctk.StringVar(value="home")
 
-        sidebar = Frame(shell, style="Sidebar.TFrame", padding=(20, 22), width=self.SIDEBAR_WIDTH)
-        sidebar.pack(side=LEFT, fill=Y, padx=(0, 16))
-        sidebar.pack_propagate(False)
-
-        self._build_brand(sidebar)
-        self._build_status_pill(sidebar)
-        self._build_controls_card(sidebar)
-        self._build_mode_card(sidebar)
-        self._build_accounts_card(sidebar)
-
-        log_panel = Frame(shell, style="Panel.TFrame", padding=(18, 16))
-        log_panel.pack(side=RIGHT, fill=BOTH, expand=True)
-        log_panel.rowconfigure(1, weight=1)
-        log_panel.columnconfigure(0, weight=1)
-
-        log_header = Frame(log_panel, style="Panel.TFrame")
-        log_header.grid(row=0, column=0, sticky="ew", pady=(0, 12))
-        log_header.columnconfigure(0, weight=1)
-        Label(log_header, text="Activity log", style="CardTitle.TLabel").grid(row=0, column=0, sticky="w")
-        Label(log_header, text="Live tail of logs/bot.log", style="Muted.TLabel").grid(row=1, column=0, sticky="w", pady=(2, 0))
-        Button(log_header, text="Clear", command=self.clear_log_view, style="Ghost.TButton").grid(row=0, column=1, rowspan=2, sticky="e")
-
-        self.log_view = ScrolledText(
-            log_panel,
-            wrap="word",
-            state=NORMAL,
-            font=("Consolas", 10),
-            bg=self.theme.log_bg,
-            fg=self.theme.log_fg,
-            insertbackground=self.theme.text,
-            selectbackground=self.theme.accent,
-            selectforeground="#ffffff",
-            relief="flat",
-            borderwidth=0,
-            padx=14,
-            pady=14,
-        )
-        self.log_view.grid(row=1, column=0, sticky="nsew")
-        self._configure_log_tags()
-        self._insert_log_text("Log output will appear here after the bot starts.\n", "muted")
-        self.log_view.configure(state="disabled")
+        self._build_layout()
 
         self.root.protocol("WM_DELETE_WINDOW", self.close)
-        self.refresh()
+        self._insert_log_text("Log output will appear here after the bot starts.\n", "muted")
+        self._tailer.start()
+        self.refresh_status()
+        self._poll_log()
 
-    def _build_brand(self, parent: Frame) -> None:
-        brand = Frame(parent, style="Sidebar.TFrame")
-        brand.pack(fill=X, pady=(0, 18))
-        accent_bar = Frame(brand, style="AccentBar.TFrame", width=4, height=42)
-        accent_bar.pack(side=LEFT, padx=(0, 12))
+    # ---------- layout ----------
+
+    def _build_layout(self) -> None:
+        shell = ctk.CTkFrame(self.root, fg_color=self.theme.background, corner_radius=0)
+        shell.pack(fill="both", expand=True, padx=20, pady=20)
+
+        sidebar = ctk.CTkFrame(
+            shell,
+            width=self.SIDEBAR_WIDTH,
+            fg_color=self.theme.panel,
+            border_color=self.theme.border,
+            border_width=1,
+            corner_radius=14,
+        )
+        sidebar.pack(side="left", fill="y", padx=(0, 16))
+        sidebar.pack_propagate(False)
+        sidebar_inner = ctk.CTkFrame(sidebar, fg_color="transparent")
+        sidebar_inner.pack(fill="both", expand=True, padx=18, pady=20)
+
+        self._build_brand(sidebar_inner)
+        self._build_status_pill(sidebar_inner)
+        self._build_controls_card(sidebar_inner)
+        self._build_mode_card(sidebar_inner)
+        self._build_accounts_card(sidebar_inner)
+        self._build_footer(sidebar_inner)
+
+        log_panel = ctk.CTkFrame(
+            shell,
+            fg_color=self.theme.panel,
+            border_color=self.theme.border,
+            border_width=1,
+            corner_radius=14,
+        )
+        log_panel.pack(side="right", fill="both", expand=True)
+        log_inner = ctk.CTkFrame(log_panel, fg_color="transparent")
+        log_inner.pack(fill="both", expand=True, padx=18, pady=16)
+
+        log_header = ctk.CTkFrame(log_inner, fg_color="transparent")
+        log_header.pack(fill="x", pady=(0, 12))
+        log_header.columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            log_header,
+            text="Activity log",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=self.theme.text,
+        ).grid(row=0, column=0, sticky="w")
+        ctk.CTkLabel(
+            log_header,
+            text=f"Live tail of {self.log_path.as_posix()}",
+            font=ctk.CTkFont(size=11),
+            text_color=self.theme.muted,
+        ).grid(row=1, column=0, sticky="w", pady=(2, 0))
+
+        ctk.CTkButton(
+            log_header,
+            text="Clear",
+            width=88,
+            height=30,
+            corner_radius=10,
+            fg_color=self.theme.panel_hi,
+            hover_color="#2a3045",
+            text_color=self.theme.muted,
+            command=self.clear_log_view,
+        ).grid(row=0, column=1, rowspan=2, sticky="e")
+
+        self.log_view = ctk.CTkTextbox(
+            log_inner,
+            wrap="word",
+            fg_color=self.theme.log_bg,
+            text_color=self.theme.log_fg,
+            border_color=self.theme.border_soft,
+            border_width=1,
+            corner_radius=10,
+            font=ctk.CTkFont(family="Consolas", size=11),
+        )
+        self.log_view.pack(fill="both", expand=True)
+        self._configure_log_tags()
+        self.log_view.configure(state="disabled")
+
+    def _build_brand(self, parent: ctk.CTkFrame) -> None:
+        brand = ctk.CTkFrame(parent, fg_color="transparent")
+        brand.pack(fill="x", pady=(0, 18))
+
+        accent_bar = ctk.CTkFrame(brand, width=4, height=42, fg_color=self.theme.accent, corner_radius=2)
+        accent_bar.pack(side="left", padx=(0, 12))
         accent_bar.pack_propagate(False)
-        text_block = Frame(brand, style="Sidebar.TFrame")
-        text_block.pack(side=LEFT, fill=X, expand=True)
-        Label(text_block, text="COC Bot", style="Brand.TLabel").pack(anchor="w")
-        Label(text_block, text="ADB Control Center", style="BrandSub.TLabel").pack(anchor="w", pady=(2, 0))
 
-    def _build_status_pill(self, parent: Frame) -> None:
-        wrapper = Frame(parent, style="Sidebar.TFrame")
-        wrapper.pack(fill=X, pady=(0, 18))
-        self._status_pill = Frame(wrapper, style="PillStopped.TFrame", padding=(14, 9))
-        self._status_pill.pack(fill=X)
-        self._status_dot = Label(self._status_pill, text="●", style="PillDotStopped.TLabel")
-        self._status_dot.pack(side=LEFT)
-        self.status = Label(self._status_pill, text="Stopped", style="PillTextStopped.TLabel")
-        self.status.pack(side=LEFT, padx=(8, 0))
+        text_block = ctk.CTkFrame(brand, fg_color="transparent")
+        text_block.pack(side="left", fill="x", expand=True)
+        ctk.CTkLabel(
+            text_block,
+            text="COC Bot",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color=self.theme.text_strong,
+        ).pack(anchor="w")
+        ctk.CTkLabel(
+            text_block,
+            text="ADB Control Center",
+            font=ctk.CTkFont(size=11),
+            text_color=self.theme.muted,
+        ).pack(anchor="w", pady=(2, 0))
 
-    def _build_controls_card(self, parent: Frame) -> None:
+    def _build_status_pill(self, parent: ctk.CTkFrame) -> None:
+        wrapper = ctk.CTkFrame(parent, fg_color="transparent")
+        wrapper.pack(fill="x", pady=(0, 18))
+
+        self._status_pill = ctk.CTkFrame(
+            wrapper,
+            fg_color=self.theme.panel_hi,
+            corner_radius=999,
+            border_color=self.theme.border,
+            border_width=1,
+        )
+        self._status_pill.pack(fill="x")
+        pill_inner = ctk.CTkFrame(self._status_pill, fg_color="transparent")
+        pill_inner.pack(padx=14, pady=8)
+
+        self._status_dot = ctk.CTkLabel(
+            pill_inner,
+            text="●",
+            text_color=self.theme.muted,
+            font=ctk.CTkFont(size=14),
+        )
+        self._status_dot.pack(side="left")
+
+        self._status_label = ctk.CTkLabel(
+            pill_inner,
+            text="Stopped",
+            text_color=self.theme.text,
+            font=ctk.CTkFont(size=12, weight="bold"),
+        )
+        self._status_label.pack(side="left", padx=(8, 0))
+
+        self._pid_label = ctk.CTkLabel(
+            pill_inner,
+            text="",
+            text_color=self.theme.muted,
+            font=ctk.CTkFont(size=11),
+        )
+        self._pid_label.pack(side="left", padx=(10, 0))
+
+    def _build_controls_card(self, parent: ctk.CTkFrame) -> None:
         card = self._card(parent, title="Controls", subtitle="Run, pause, or recycle the bot")
-        Button(card, text="25 × 3 accounts", command=self.start_25_attacks, style="Accent.TButton").pack(fill=X, pady=(0, 8))
-        Button(card, text="Start", command=self.start_bot, style="Accent.TButton").pack(fill=X, pady=(0, 8))
-        row = Frame(card, style="Card.TFrame")
-        row.pack(fill=X)
+
+        self._cycle_button = self._accent_button(card, text="25 × 3 accounts", command=self.start_25_attacks)
+        self._cycle_button.pack(fill="x", pady=(0, 8))
+
+        self._start_button = self._accent_button(card, text="Start", command=self.start_bot)
+        self._start_button.pack(fill="x", pady=(0, 8))
+
+        row = ctk.CTkFrame(card, fg_color="transparent")
+        row.pack(fill="x")
         row.columnconfigure(0, weight=1, uniform="ctl")
         row.columnconfigure(1, weight=1, uniform="ctl")
-        Button(row, text="Stop", command=self.stop_bot, style="Danger.TButton").grid(row=0, column=0, sticky="ew", padx=(0, 4))
-        Button(row, text="Restart", command=self.restart_bot, style="Toolbar.TButton").grid(row=0, column=1, sticky="ew", padx=(4, 0))
 
-    def _build_mode_card(self, parent: Frame) -> None:
+        self._stop_button = ctk.CTkButton(
+            row,
+            text="Stop",
+            command=self.stop_bot,
+            height=36,
+            corner_radius=10,
+            fg_color=self.theme.error_soft,
+            hover_color="#4a242c",
+            text_color=self.theme.error_text,
+            border_color="#5a2d35",
+            border_width=1,
+            font=ctk.CTkFont(size=12, weight="bold"),
+        )
+        self._stop_button.grid(row=0, column=0, sticky="ew", padx=(0, 4))
+
+        self._restart_button = ctk.CTkButton(
+            row,
+            text="Restart",
+            command=self.restart_bot,
+            height=36,
+            corner_radius=10,
+            fg_color=self.theme.panel_hi,
+            hover_color="#2a3045",
+            text_color=self.theme.text,
+            font=ctk.CTkFont(size=12),
+        )
+        self._restart_button.grid(row=0, column=1, sticky="ew", padx=(4, 0))
+
+    def _build_mode_card(self, parent: ctk.CTkFrame) -> None:
         card = self._card(parent, title="Bot mode", subtitle="Pick a village")
-        Radiobutton(card, text="Home village", variable=self.bot_mode, value="home", style="Mode.TRadiobutton").pack(anchor="w", pady=(0, 4))
-        Radiobutton(card, text="Builder base", variable=self.bot_mode, value="builder", style="Mode.TRadiobutton").pack(anchor="w")
 
-    def _build_accounts_card(self, parent: Frame) -> None:
-        card = self._card(parent, title="Account", subtitle="Switch active profile", pady_outer=(0, 0))
-        for name in ("proxima", "yung_proxima", "old_proxima"):
-            Button(card, text=name, command=lambda n=name: self.switch_account(n), style="Toolbar.TButton").pack(fill=X, pady=(0, 6))
-
-    def _card(self, parent: Frame, title: str, subtitle: str | None = None, pady_outer: tuple[int, int] = (0, 14)) -> Frame:
-        outer = Frame(parent, style="Card.TFrame", padding=(14, 14))
-        outer.pack(fill=X, pady=pady_outer)
-        Label(outer, text=title, style="CardTitle.TLabel").pack(anchor="w")
-        if subtitle:
-            Label(outer, text=subtitle, style="CardSub.TLabel").pack(anchor="w", pady=(2, 10))
-        else:
-            Frame(outer, style="Card.TFrame", height=8).pack(fill=X)
-        return outer
-
-    def _configure_styles(self) -> None:
-        style = Style(self.root)
-        style.theme_use("clam")
-
-        style.configure("App.TFrame", background=self.theme.background)
-        style.configure("Sidebar.TFrame", background=self.theme.panel, relief="solid", borderwidth=1, bordercolor=self.theme.border)
-        style.configure("Panel.TFrame", background=self.theme.panel, relief="solid", borderwidth=1, bordercolor=self.theme.border)
-        style.configure("Card.TFrame", background=self.theme.panel_alt, relief="solid", borderwidth=1, bordercolor=self.theme.border_soft)
-        style.configure("AccentBar.TFrame", background=self.theme.accent)
-
-        style.configure("Brand.TLabel", background=self.theme.panel, foreground=self.theme.text_strong, font=("Segoe UI", 16, "bold"))
-        style.configure("BrandSub.TLabel", background=self.theme.panel, foreground=self.theme.muted, font=("Segoe UI", 9))
-        style.configure("CardTitle.TLabel", background=self.theme.panel_alt, foreground=self.theme.text, font=("Segoe UI", 10, "bold"))
-        style.configure("CardSub.TLabel", background=self.theme.panel_alt, foreground=self.theme.muted, font=("Segoe UI", 9))
-        style.configure("Muted.TLabel", background=self.theme.panel, foreground=self.theme.muted, font=("Segoe UI", 9))
-
-        style.configure("PillStopped.TFrame", background=self.theme.panel_hi, relief="solid", borderwidth=1, bordercolor=self.theme.border)
-        style.configure("PillRunning.TFrame", background=self.theme.success_soft, relief="solid", borderwidth=1, bordercolor="#1f5a36")
-        style.configure("PillDotStopped.TLabel", background=self.theme.panel_hi, foreground=self.theme.muted, font=("Segoe UI", 11))
-        style.configure("PillTextStopped.TLabel", background=self.theme.panel_hi, foreground=self.theme.text, font=("Segoe UI", 10, "bold"))
-        style.configure("PillDotRunning.TLabel", background=self.theme.success_soft, foreground=self.theme.success, font=("Segoe UI", 11))
-        style.configure("PillTextRunning.TLabel", background=self.theme.success_soft, foreground="#a7f3c5", font=("Segoe UI", 10, "bold"))
-
-        style.configure(
-            "Mode.TRadiobutton",
-            background=self.theme.panel_alt,
-            foreground=self.theme.text,
-            font=("Segoe UI", 10),
-            indicatorcolor=self.theme.panel_hi,
-            indicatorbackground=self.theme.panel_hi,
+        # CTkSegmentedButton — современный аналог пары RadioButton.
+        self._mode_switch = ctk.CTkSegmentedButton(
+            card,
+            values=["Home village", "Builder base"],
+            command=self._on_mode_changed,
+            fg_color=self.theme.panel_hi,
+            selected_color=self.theme.accent,
+            selected_hover_color=self.theme.accent_hover,
+            unselected_color=self.theme.panel_hi,
+            unselected_hover_color="#2a3045",
+            text_color=self.theme.text,
+            corner_radius=10,
+            height=34,
         )
-        style.map(
-            "Mode.TRadiobutton",
-            background=[("active", self.theme.panel_alt)],
-            foreground=[("disabled", self.theme.subtle)],
-            indicatorcolor=[("selected", self.theme.accent), ("!selected", self.theme.panel_hi)],
-        )
+        self._mode_switch.set("Home village")
+        self._mode_switch.pack(fill="x")
 
-        for name, bg, fg, hover in (
-            ("Toolbar.TButton", self.theme.panel_hi, self.theme.text, "#2a3045"),
-            ("Ghost.TButton", self.theme.panel, self.theme.muted, self.theme.panel_hi),
-        ):
-            style.configure(
-                name,
-                background=bg,
-                foreground=fg,
-                bordercolor=self.theme.border,
-                darkcolor=bg,
-                lightcolor=bg,
-                focuscolor=bg,
-                padding=(14, 9),
-                font=("Segoe UI", 10),
-                relief="flat",
+    def _build_accounts_card(self, parent: ctk.CTkFrame) -> None:
+        card = self._card(parent, title="Account", subtitle="Switch active profile")
+        for name in self.accounts:
+            button = ctk.CTkButton(
+                card,
+                text=name,
+                command=lambda n=name: self.switch_account(n),
+                height=34,
+                corner_radius=10,
+                fg_color=self.theme.panel_hi,
+                hover_color="#2a3045",
+                text_color=self.theme.text,
+                font=ctk.CTkFont(size=12),
             )
-            style.map(name, background=[("active", hover)], foreground=[("disabled", self.theme.subtle)])
+            button.pack(fill="x", pady=(0, 6))
 
-        style.configure(
-            "Accent.TButton",
-            background=self.theme.accent,
-            foreground="#ffffff",
-            bordercolor=self.theme.accent,
-            darkcolor=self.theme.accent,
-            lightcolor=self.theme.accent,
-            focuscolor=self.theme.accent,
-            padding=(14, 11),
-            font=("Segoe UI", 10, "bold"),
-            relief="flat",
-        )
-        style.map("Accent.TButton", background=[("active", self.theme.accent_hover)])
+    def _build_footer(self, parent: ctk.CTkFrame) -> None:
+        spacer = ctk.CTkFrame(parent, fg_color="transparent")
+        spacer.pack(fill="both", expand=True)
+        ctk.CTkLabel(
+            parent,
+            text=f"log: {self.log_path.as_posix()}",
+            text_color=self.theme.subtle,
+            font=ctk.CTkFont(size=10),
+        ).pack(anchor="w")
 
-        style.configure(
-            "Danger.TButton",
-            background=self.theme.error_soft,
-            foreground="#ffd5d5",
-            bordercolor="#5a2d35",
-            darkcolor=self.theme.error_soft,
-            lightcolor=self.theme.error_soft,
-            focuscolor=self.theme.error_soft,
-            padding=(14, 9),
-            font=("Segoe UI", 10, "bold"),
-            relief="flat",
+    def _card(
+        self,
+        parent: ctk.CTkFrame,
+        title: str,
+        subtitle: str | None = None,
+    ) -> ctk.CTkFrame:
+        outer = ctk.CTkFrame(
+            parent,
+            fg_color=self.theme.panel_alt,
+            border_color=self.theme.border_soft,
+            border_width=1,
+            corner_radius=12,
         )
-        style.map("Danger.TButton", background=[("active", "#4a242c")])
+        outer.pack(fill="x", pady=(0, 14))
+        inner = ctk.CTkFrame(outer, fg_color="transparent")
+        inner.pack(fill="x", padx=14, pady=14)
+
+        ctk.CTkLabel(
+            inner,
+            text=title,
+            text_color=self.theme.text,
+            font=ctk.CTkFont(size=12, weight="bold"),
+        ).pack(anchor="w")
+        if subtitle:
+            ctk.CTkLabel(
+                inner,
+                text=subtitle,
+                text_color=self.theme.muted,
+                font=ctk.CTkFont(size=11),
+            ).pack(anchor="w", pady=(2, 10))
+        return inner
+
+    def _accent_button(self, parent: ctk.CTkFrame, text: str, command: Callable[[], None]) -> ctk.CTkButton:
+        return ctk.CTkButton(
+            parent,
+            text=text,
+            command=command,
+            height=40,
+            corner_radius=10,
+            fg_color=self.theme.accent,
+            hover_color=self.theme.accent_hover,
+            text_color="#ffffff",
+            font=ctk.CTkFont(size=13, weight="bold"),
+        )
+
+    # ---------- actions ----------
+
+    def _on_mode_changed(self, value: str) -> None:
+        self.bot_mode.set("home" if value == "Home village" else "builder")
 
     def start_bot(self) -> None:
         started = self.controller.start(bot_mode=self.bot_mode.get())
         self.append_ui_log("Bot started." if started else "Bot is already running.")
-        self.update_status()
+        self.refresh_status()
 
     def start_25_attacks(self) -> None:
         started = self.controller.start(account_cycle=True, bot_mode="home")
-        self.append_ui_log("Bot started for 25 attacks on 3 accounts." if started else "Bot is already running.")
-        self.update_status()
+        self.append_ui_log(
+            "Bot started for 25 attacks on 3 accounts." if started else "Bot is already running."
+        )
+        self.refresh_status()
 
     def stop_bot(self) -> None:
-        stopped = self.controller.stop()
+        if not self.controller.is_running():
+            self.append_ui_log("Bot was not running.")
+            self.refresh_status()
+            return
+        if self._stop_in_progress:
+            self.append_ui_log("Stop already in progress…")
+            return
+        self._stop_in_progress = True
+        self._stop_button.configure(state="disabled", text="Stopping…")
+        self.append_ui_log("Stopping bot…")
+
+        def runner() -> None:
+            stopped = False
+            try:
+                stopped = self.controller.stop()
+            finally:
+                self.root.after(0, lambda: self._on_stop_finished(stopped))
+
+        threading.Thread(target=runner, name="ui-stop", daemon=True).start()
+
+    def _on_stop_finished(self, stopped: bool) -> None:
+        self._stop_in_progress = False
+        self._stop_button.configure(state="normal", text="Stop")
         self.append_ui_log("Bot stopped." if stopped else "Bot was not running.")
-        self.update_status()
+        self.refresh_status()
 
     def restart_bot(self) -> None:
-        self.controller.restart(bot_mode=self.bot_mode.get())
+        # Сначала останавливаем синхронно через стандартный stop, затем стартуем.
+        if self.controller.is_running():
+            self._stop_button.configure(state="disabled")
+
+            def runner() -> None:
+                self.controller.stop()
+                self.root.after(0, self._after_restart_stop)
+
+            threading.Thread(target=runner, name="ui-restart", daemon=True).start()
+        else:
+            self._after_restart_stop()
+
+    def _after_restart_stop(self) -> None:
+        self._stop_button.configure(state="normal", text="Stop")
+        self.controller.start(bot_mode=self.bot_mode.get())
         self.append_ui_log("Bot restarted.")
-        self.update_status()
+        self.refresh_status()
 
     def switch_account(self, account_name: str) -> None:
         if self.controller.is_running():
@@ -325,35 +612,43 @@ class BotControlUi:
             self.append_ui_log("Bot stopped before account switch.")
         self.controller.switch_account(account_name)
         self.append_ui_log(f"Account switch requested: {account_name}.")
-        self.update_status()
+        self.refresh_status()
 
     def clear_log_view(self) -> None:
-        self.log_view.configure(state=NORMAL)
-        self.log_view.delete("1.0", END)
+        self.log_view.configure(state="normal")
+        self.log_view.delete("1.0", "end")
         self.log_view.configure(state="disabled")
-        self._last_log_size = self.log_path.stat().st_size if self.log_path.exists() else 0
+        self._tailer.reset()
 
     def append_ui_log(self, text: str) -> None:
-        self.log_view.configure(state=NORMAL)
+        self.log_view.configure(state="normal")
         self._insert_log_text(f"[UI] {text}\n", "ui")
-        self.log_view.see(END)
+        self.log_view.see("end")
         self.log_view.configure(state="disabled")
 
+    # ---------- log rendering ----------
+
+    def _underlying_text_widget(self):
+        # CTkTextbox держит внутри tk.Text — без него нельзя ставить tag_configure.
+        return self.log_view._textbox  # noqa: SLF001 — стабильный публично используемый атрибут
+
     def _configure_log_tags(self) -> None:
-        self.log_view.tag_configure("error", foreground=self.theme.error)
-        self.log_view.tag_configure("success", foreground=self.theme.success)
-        self.log_view.tag_configure("warning", foreground=self.theme.warning)
-        self.log_view.tag_configure("info", foreground=self.theme.info)
-        self.log_view.tag_configure("debug", foreground=self.theme.debug)
-        self.log_view.tag_configure("ui", foreground=self.theme.ui)
-        self.log_view.tag_configure("muted", foreground=self.theme.log_muted)
-        self.log_view.tag_configure("default", foreground=self.theme.log_fg)
+        text = self._underlying_text_widget()
+        text.tag_configure("error", foreground=self.theme.error)
+        text.tag_configure("success", foreground=self.theme.success)
+        text.tag_configure("warning", foreground=self.theme.warning)
+        text.tag_configure("info", foreground=self.theme.info)
+        text.tag_configure("debug", foreground=self.theme.debug)
+        text.tag_configure("ui", foreground=self.theme.ui)
+        text.tag_configure("muted", foreground=self.theme.log_muted)
+        text.tag_configure("default", foreground=self.theme.log_fg)
 
     def _insert_log_text(self, text: str, tag: str | None = None) -> None:
         for line in text.splitlines(keepends=True):
-            self.log_view.insert(END, line, tag or self._log_tag_for_line(line))
+            self.log_view.insert("end", line, tag or self._log_tag_for_line(line))
 
-    def _log_tag_for_line(self, line: str) -> str:
+    @staticmethod
+    def _log_tag_for_line(line: str) -> str:
         normalized = line.lower()
         if "[ui]" in normalized:
             return "ui"
@@ -369,44 +664,69 @@ class BotControlUi:
             return "info"
         return "default"
 
-    def update_status(self) -> None:
+    # ---------- status / polling ----------
+
+    def refresh_status(self) -> None:
+        # Детекция самопроизвольного крэша процесса.
+        if self._was_running and self.controller.has_crashed():
+            code = self.controller.collect_crashed()
+            self.append_ui_log(f"Bot process exited unexpectedly (code={code}).")
+            self._set_status("crashed")
+            self._pid_label.configure(text="")
+            self._was_running = False
+            return
+
         is_running = self.controller.is_running()
         if is_running:
-            self._status_pill.configure(style="PillRunning.TFrame")
-            self._status_dot.configure(style="PillDotRunning.TLabel")
-            self.status.configure(style="PillTextRunning.TLabel", text="Running")
+            self._set_status("running")
+            pid = self.controller.pid()
+            self._pid_label.configure(text=f"pid {pid}" if pid else "")
         else:
-            self._status_pill.configure(style="PillStopped.TFrame")
-            self._status_dot.configure(style="PillDotStopped.TLabel")
-            self.status.configure(style="PillTextStopped.TLabel", text="Stopped")
+            # «Просто остановлен», без крэша.
+            if self._was_running:
+                self._pid_label.configure(text="")
+            if not self._stop_in_progress:
+                self._set_status("stopped")
+        self._was_running = is_running
 
-    def refresh(self) -> None:
-        self.update_status()
-        self.read_new_log()
-        self.root.after(1000, self.refresh)
+    def _set_status(self, state: str) -> None:
+        if state == "running":
+            self._status_pill.configure(fg_color=self.theme.success_soft, border_color="#1f5a36")
+            self._status_dot.configure(text_color=self.theme.success)
+            self._status_label.configure(text="Running", text_color=self.theme.success_text)
+        elif state == "crashed":
+            self._status_pill.configure(fg_color=self.theme.error_soft, border_color="#5a2d35")
+            self._status_dot.configure(text_color=self.theme.error)
+            self._status_label.configure(text="Crashed", text_color=self.theme.error_text)
+        else:
+            self._status_pill.configure(fg_color=self.theme.panel_hi, border_color=self.theme.border)
+            self._status_dot.configure(text_color=self.theme.muted)
+            self._status_label.configure(text="Stopped", text_color=self.theme.text)
 
-    def read_new_log(self) -> None:
-        if not self.log_path.exists():
-            return
-        size = self.log_path.stat().st_size
-        if size < self._last_log_size:
-            self._last_log_size = 0
-        if size == self._last_log_size:
-            return
-        with self.log_path.open("r", encoding="utf-8", errors="replace") as log_file:
-            log_file.seek(self._last_log_size)
-            chunk = log_file.read()
-            self._last_log_size = log_file.tell()
-        if not chunk:
-            return
-        self.log_view.configure(state=NORMAL)
-        self._insert_log_text(chunk)
-        self.log_view.see(END)
-        self.log_view.configure(state="disabled")
+    def _poll_log(self) -> None:
+        chunks = self._tailer.drain()
+        if chunks:
+            self.log_view.configure(state="normal")
+            for chunk in chunks:
+                self._insert_log_text(chunk)
+            self.log_view.see("end")
+            self.log_view.configure(state="disabled")
+        # Регулярно обновляем статус (раз в STATUS_POLL_MS), а лог — чаще.
+        now = time.monotonic()
+        last = getattr(self, "_last_status_at", 0.0)
+        if (now - last) * 1000 >= self.STATUS_POLL_MS:
+            self.refresh_status()
+            self._last_status_at = now
+        self.root.after(self.LOG_POLL_MS, self._poll_log)
+
+    # ---------- lifecycle ----------
 
     def close(self) -> None:
-        self.controller.stop()
-        self.root.destroy()
+        try:
+            self.controller.stop()
+        finally:
+            self._tailer.stop()
+            self.root.destroy()
 
     def run(self) -> None:
         self.root.mainloop()

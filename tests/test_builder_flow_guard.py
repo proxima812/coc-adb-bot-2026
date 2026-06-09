@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from contextlib import contextmanager
 
 import numpy as np
 
@@ -39,6 +40,10 @@ class FakeVision:
     def screenshot_array(self) -> np.ndarray:
         self.screenshot_calls += 1
         return np.full((100, 200, 3), 32, dtype=np.uint8)
+
+    @contextmanager
+    def frame(self):  # no-op кэш-контекст для совместимости с продакшеном
+        yield self.screenshot_array()
 
     def has_okay_button(self) -> bool:
         return self.okay_results.pop(0) if self.okay_results else False

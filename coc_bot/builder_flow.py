@@ -41,7 +41,11 @@ class BuilderBattleFlow:
         self.dismiss_popups()
 
     def dismiss_popups(self) -> bool:
-        if self.vision.has_okay_button():
+        # Один screenshot на обе проверки (раньше — два + дополнительный OCR-фрейм).
+        with self.vision.frame():
+            has_okay = self.vision.has_okay_button()
+            has_popup = False if has_okay else self.vision.has_configured_popup()
+        if has_okay:
             logger.info(
                 "Builder Okay button detected; pressing configured point {},{}",
                 self.config.okay_button_point.x,
@@ -51,7 +55,7 @@ class BuilderBattleFlow:
             time.sleep(self.config.tap_delay_seconds)
             return True
 
-        if self.vision.has_configured_popup():
+        if has_popup:
             logger.info(
                 "Builder popup detected; pressing Okay point {},{}",
                 self.config.okay_button_point.x,
@@ -66,13 +70,21 @@ class BuilderBattleFlow:
         while True:
             if self.dismiss_popups():
                 continue
-            if self.vision.has_builder_attack_button():
+            # Один screenshot на три template-проверки в каждой итерации опроса
+            # (раньше — три ADB screencap + три PNG decode).
+            with self.vision.frame():
+                attack = self.vision.has_builder_attack_button()
+                star = False if attack else self.vision.has_star_bonus_counter()
+                return_home = (
+                    False if (attack or star) else self.vision.has_builder_return_home_button()
+                )
+            if attack:
                 logger.info("Builder base detected by Attack template")
                 return
-            if self.vision.has_star_bonus_counter():
+            if star:
                 logger.info("Builder base detected by star bonus template")
                 return
-            if self.vision.has_builder_return_home_button():
+            if return_home:
                 logger.info("Return Home is visible while waiting for base; pressing R")
                 self._tap(self.config.builder_return_home_point)
             else:

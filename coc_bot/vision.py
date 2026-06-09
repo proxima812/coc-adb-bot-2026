@@ -2,15 +2,20 @@ from __future__ import annotations
 
 import re
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Iterator
 
 import cv2
-import easyocr
 import numpy as np
 from loguru import logger
 from PIL import Image
+
+# easyocr тянет torch (~2 ГБ) — импортируем лениво, чтобы дешёвые операции
+# (template-matching, screenshots) работали даже без OCR-движка и чтобы
+# импорт модуля не падал в среде без него.
 
 from .adb_device import AdbDevice
 from .config import BotConfig, RelativeArea, RelativePoint
@@ -54,16 +59,22 @@ class VisionModule:
     def __init__(self, device: AdbDevice, config: BotConfig) -> None:
         self.device = device
         self.config = config
-        self._reader: easyocr.Reader | None = None
+        self._reader = None  # type: ignore[var-annotated]  # easyocr.Reader, lazy
         self._template_cache: dict[str, np.ndarray | None] = {}
         self._template_gray_cache: dict[str, np.ndarray | None] = {}
         self._stable_state = GameState.UNKNOWN
         self._candidate_state = GameState.UNKNOWN
         self._candidate_count = 0
+        # Кэш кадра для batch-детекции: внутри `with vision.frame():`
+        # все вызовы screenshot_array() возвращают один и тот же RGB-массив.
+        self._frame_cache: np.ndarray | None = None
+        self._frame_depth = 0
 
     @property
-    def reader(self) -> easyocr.Reader:
+    def reader(self):  # type: ignore[no-untyped-def]
         if self._reader is None:
+            import easyocr  # ленивый импорт: тянет torch на сотни МБ
+
             self._reader = easyocr.Reader(["en"], gpu=False)
         return self._reader
 
@@ -71,6 +82,13 @@ class VisionModule:
         return Image.fromarray(self.screenshot_array())
 
     def screenshot_array(self) -> np.ndarray:
+        # Внутри активного `with self.frame()` отдаём кэшированный кадр и
+        # экономим круг ADB→PNG→decode на каждом has_*-вызове.
+        if self._frame_cache is not None:
+            return self._frame_cache
+        return self._capture_fresh_screenshot()
+
+    def _capture_fresh_screenshot(self) -> np.ndarray:
         raw = self.device.screenshot()
         data = np.frombuffer(raw, dtype=np.uint8)
         if data.size == 0:
@@ -79,6 +97,40 @@ class VisionModule:
         if image is None:
             raise RuntimeError("Unable to decode Android screenshot")
         return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+    @contextmanager
+    def frame(self) -> Iterator[np.ndarray]:
+        """Шаг детекции с единым screenshot для всех has_*/find_*/OCR проверок.
+
+        Использование:
+
+            with vision.frame():
+                if vision.has_okay_button():
+                    ...
+                if vision.has_configured_popup():
+                    ...
+
+        Поддерживает вложенные вызовы — внутренний блок переиспользует кадр
+        внешнего. Кадр инвалидируется автоматически при выходе из самого
+        внешнего блока. Тяжёлые операции (тап/swipe/sleep) принципиально не
+        выполняются внутри блока — кадр не отражает изменения экрана.
+        """
+        outer = self._frame_depth == 0
+        if outer:
+            self._frame_cache = self._capture_fresh_screenshot()
+        self._frame_depth += 1
+        try:
+            assert self._frame_cache is not None
+            yield self._frame_cache
+        finally:
+            self._frame_depth -= 1
+            if self._frame_depth == 0:
+                self._frame_cache = None
+
+    def invalidate_frame(self) -> None:
+        """Принудительно сбросить кэшированный кадр (например, после tap)."""
+        if self._frame_depth > 0:
+            self._frame_cache = self._capture_fresh_screenshot()
 
     def save_debug_screenshot(self, reason: str, image: np.ndarray | None = None) -> Path | None:
         if not self.config.debug_screenshots_enabled:
