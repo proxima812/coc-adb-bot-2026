@@ -5,62 +5,51 @@
 - Reply in Russian when the user writes in Russian.
 - Inspect real files/logs before explaining behavior.
 - Keep the bot ADB-first; avoid desktop mouse/keyboard fallbacks unless explicitly requested.
-- `config.example.json` is active when `config.json` is missing.
-- Current emulator is LDPlayer only. Do not use or restore BlueStacks paths, launchers, window lookup, or recovery logic.
+- LDPlayer is the only emulator. Do not reintroduce BlueStacks/MEmu/Nox.
+- Code is edited from both macOS and Windows. **Runtime is Windows only** (LDPlayer + `tools/dev.ps1`). macOS edits cannot validate ADB/screenshot/recovery — say so in the answer instead of pretending.
+- `config.json` is the operator's gitignored config. If it's absent, `BotConfig` defaults run.
 
 ## Validation
 
-Use AI hook commands during agent work:
+### macOS
 
-```powershell
-.\tools\dev.ps1 ai-preflight
-.\tools\dev.ps1 ai-postedit
-.\tools\dev.ps1 ai-logscan -Tail 120
+```bash
+python -m compileall coc_bot
+python -c "from coc_bot.config import load_config, validate_config; c=load_config(); validate_config(c); print('config ok')"
+python -m pytest tests/test_config.py tests/test_builder_flow_guard.py
 ```
 
-Useful operator commands:
+Только два теста сохранены как страховка: `test_config` (схема конфига) и `test_builder_flow_guard` (safe-area / forbidden-area builder'a). Тапы, шаблоны, OCR и ADB-стабильность проверяются вручную на Windows-рантайме.
+
+### Windows
 
 ```powershell
-.\tools\dev.ps1 ui
-.\tools\dev.ps1 run
-.\tools\dev.ps1 calibration
-```
-
-Run before handing off code changes:
-
-```powershell
-.\tools\dev.ps1 check
-```
-
-Run for runtime/ADB diagnosis:
-
-```powershell
-.\tools\dev.ps1 doctor
+.\tools\dev.ps1 check         # compile + config validation
+.\tools\dev.ps1 doctor        # ADB + screenshot + state detect
 .\tools\dev.ps1 logs -Tail 120
+.\tools\dev.ps1 ui            # local UI
+.\tools\dev.ps1 run           # python -m coc_bot.main
+.\tools\dev.ps1 calibration   # one calibration overlay
 ```
 
 ## Key Files
 
-- `coc_bot\config.py`: dataclasses and defaults.
-- `config.example.json`: current operator config fallback.
-- `coc_bot\emulator.py`: LDPlayer startup before ADB/app launch.
-- `coc_bot\ui.py`: simple local UI with start/stop/restart and log view.
-- `coc_bot\calibration.py`: screenshot overlay with percent grid, slots, G points, and spell area.
-- `coc_bot\battle_flow.py`: base search, deploy order, spells, return home.
-- `coc_bot\vision.py`: OCR/templates/state detection.
-- `coc_bot\adb_device.py`: ADB commands, screenshot retries.
-- `coc_bot\recovery.py`: LDPlayer restart and ADB/app reconnect logic.
-- `com.supercell.clashofclans.cfg`: emulator keymap source for G points.
-- `start-ui.bat`: double-click launcher for the local UI.
+- `coc_bot/config.py` — dataclass `BotConfig` with all defaults.
+- `coc_bot/main.py` — entrypoint, picks `home` or `builder` loop.
+- `coc_bot/battle_flow.py` — home village flow (`hotkeys` deploy + `ctrl+scroll` camera).
+- `coc_bot/builder_flow.py` — builder village flow (rapid deploy + slot-state checks + guarded taps).
+- `coc_bot/vision.py` — templates, OCR, state detection, `frame()` reuse.
+- `coc_bot/adb_device.py` — ADB commands, persistent shell, screenshot retries, emulator key combos.
+- `coc_bot/emulator.py` — LDPlayer startup.
+- `coc_bot/recovery.py` — LDPlayer restart, ADB reconnect, app restart.
+- `coc_bot/calibration.py` — percent-grid overlays under `logs/calibration`.
+- `coc_bot/ui.py` — CustomTkinter UI.
+- `main-village.md` / `builder-village.md` — narrative description of the current flows. Update when behavior changes.
 
 ## AI Hooks
 
-- Before code edits: read `.agents\hooks\preflight.md` and run `.\tools\dev.ps1 ai-preflight`.
-- After code edits: read `.agents\hooks\postedit.md` and run `.\tools\dev.ps1 ai-postedit`.
-- For log/debug tasks: read `.agents\hooks\log-diagnosis.md` and run `.\tools\dev.ps1 ai-logscan -Tail 160`.
-- For ADB/runtime tasks: read `.agents\hooks\runtime-adb.md` before changing LDPlayer, recovery, screenshot, or app launch behavior.
-
-<!-- SPECKIT START -->
-For additional context about technologies to be used, project structure,
-shell commands, and other important information, read the current plan
-<!-- SPECKIT END -->
+- Before code edits: `.agents/hooks/preflight.md`.
+- After code edits: `.agents/hooks/postedit.md`.
+- ADB/runtime changes: `.agents/hooks/runtime-adb.md`.
+- Deploy tuning: `.agents/hooks/deploy-tuning.md`.
+- Log/debug: `.agents/hooks/log-diagnosis.md`.
