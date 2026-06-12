@@ -92,6 +92,8 @@ class BotConfig:
     battle_camera_pan_swipe_duration_ms: int = 700
     battle_camera_pan_settle_seconds: float = 0.35
     battle_camera_center_settle_seconds: float = 0.25
+    battle_camera_direct_ctrl_scroll_enabled: bool = False
+    battle_camera_direct_ctrl_scroll_ticks: int = 2
     calibration_overlay_enabled: bool = False
     calibration_overlay_dir: str = "logs/calibration"
     calibration_overlay_grid_step_percent: float = 10.0
@@ -158,6 +160,8 @@ class BotConfig:
     attack_template_threshold: float = 0.78
     star_bonus_template_threshold: float = 0.78
     next_template_threshold: float = 0.78
+    free_button_template_path: str = "assets/templates/state/free_button.png"
+    free_button_template_threshold: float = 0.78
     state_confirmations_required: int = 2
     health_state_attempts: int = 4
     health_state_retry_delay_seconds: float = 1.0
@@ -165,11 +169,31 @@ class BotConfig:
     next_template_area: RelativeArea = field(default_factory=lambda: RelativeArea(x_min=78.0, x_max=100.0, y_min=58.0, y_max=86.0))
     attack_template_area: RelativeArea = field(default_factory=lambda: RelativeArea(x_min=0.0, x_max=36.0, y_min=66.0, y_max=96.0))
     star_bonus_template_area: RelativeArea = field(default_factory=lambda: RelativeArea(x_min=0.0, x_max=36.0, y_min=0.0, y_max=24.0))
+    free_button_template_area: RelativeArea = field(default_factory=lambda: RelativeArea(x_min=0.0, x_max=30.0, y_min=55.0, y_max=86.0))
     deploy_mode: str = "coordinates"
     bot_mode: str = "home"
     g_key_deploy_key: str = "G"
     g_key_deploy_presses: int = 5
     g_key_deploy_press_delay_seconds: float = 0.05
+    home_hotkey_troop_key: str = "1"
+    home_hotkey_troop_g_presses: int = 8
+    home_hotkey_g_point_keys: list[str] = field(default_factory=lambda: ["1", "2", "3", "4", "5", "6", "7", "8"])
+    home_hotkey_troop_g_point_passes: int = 3
+    home_hotkey_siege_key: str = "2"
+    home_hotkey_siege_g_presses: int = 4
+    home_hotkey_all_point_keys: list[str] = field(default_factory=lambda: ["2", "3", "4", "5", "6"])
+    home_hotkey_all_point_passes: int = 1
+    home_hotkey_hero_keys: list[str] = field(default_factory=lambda: ["3", "4", "5", "6"])
+    home_hotkey_hero_g_presses: int = 4
+    home_hotkey_hero_ability_delay_seconds: float = 2.0
+    home_hotkey_spell_key: str = "7"
+    home_hotkey_key_delay_seconds: float = 0.05
+    home_free_check_enabled: bool = True
+    home_free_first_tap_index: int = 0
+    home_free_open_point: RelativePoint = field(default_factory=lambda: RelativePoint(x=16.75, y=73.22))
+    home_free_collect_point: RelativePoint = field(default_factory=lambda: RelativePoint(x=50.32, y=79.04))
+    home_free_close_point: RelativePoint = field(default_factory=lambda: RelativePoint(x=50.32, y=79.04))
+    home_attack_start_point: RelativePoint = field(default_factory=lambda: RelativePoint(x=89.56, y=88.67))
     deploy_slot_detection_area: RelativeArea = field(default_factory=lambda: RelativeArea(x_min=0.0, x_max=100.0, y_min=67.0, y_max=100.0))
     state_ocr_bottom_area: RelativeArea = field(default_factory=lambda: RelativeArea(x_min=0.0, x_max=97.5, y_min=64.36, y_max=100.0))
     state_ocr_battle_area: RelativeArea = field(default_factory=lambda: RelativeArea(x_min=0.0, x_max=97.5, y_min=64.36, y_max=100.0))
@@ -404,6 +428,10 @@ def _config_from_dict(raw: dict) -> BotConfig:
         "account_proxima_point",
         "account_yung_proxima_point",
         "account_old_proxima_point",
+        "home_free_open_point",
+        "home_free_collect_point",
+        "home_free_close_point",
+        "home_attack_start_point",
         "builder_deploy_point",
         "builder_return_home_point",
         "builder_hero_ability_point",
@@ -420,6 +448,7 @@ def _config_from_dict(raw: dict) -> BotConfig:
         "next_template_area",
         "attack_template_area",
         "star_bonus_template_area",
+        "free_button_template_area",
         "deploy_slot_detection_area",
         "troops_deployed_detection_area",
         "state_ocr_bottom_area",
@@ -465,6 +494,10 @@ def validate_config(config: BotConfig) -> None:
         "account_proxima_point",
         "account_yung_proxima_point",
         "account_old_proxima_point",
+        "home_free_open_point",
+        "home_free_collect_point",
+        "home_free_close_point",
+        "home_attack_start_point",
         "builder_deploy_point",
         "builder_return_home_point",
     ):
@@ -524,6 +557,7 @@ def validate_config(config: BotConfig) -> None:
         "next_template_area",
         "attack_template_area",
         "star_bonus_template_area",
+        "free_button_template_area",
         "deploy_slot_detection_area",
         "troops_deployed_detection_area",
         "state_ocr_bottom_area",
@@ -555,6 +589,7 @@ def validate_config(config: BotConfig) -> None:
         "battle_camera_zoom_out_seconds",
         "battle_camera_pan_settle_seconds",
         "battle_camera_center_settle_seconds",
+        "battle_camera_direct_ctrl_scroll_ticks",
         "calibration_overlay_grid_step_percent",
         "auto_deploy_scan_settle_seconds",
         "deploy_neighbor_offset_percent",
@@ -566,6 +601,8 @@ def validate_config(config: BotConfig) -> None:
         "base_search_tap_delay_seconds",
         "spell_tap_delay_seconds",
         "account_switch_tap_delay_seconds",
+        "home_hotkey_key_delay_seconds",
+        "home_hotkey_hero_ability_delay_seconds",
         "builder_first_slot_retap_interval_seconds",
         "builder_redeploy_slots_interval_seconds",
         "builder_hero_ability_interval_seconds",
@@ -588,6 +625,7 @@ def validate_config(config: BotConfig) -> None:
     optional_templates = [
         config.attack_template_path,
         config.next_template_path,
+        config.free_button_template_path,
         config.troops_deployed_template_path,
         *config.attack_template_paths,
         *config.star_bonus_template_paths,
@@ -607,14 +645,26 @@ def validate_config(config: BotConfig) -> None:
 
     if not config.fallback_deploy_points:
         errors.append("fallback_deploy_points should contain at least one G point")
-    if config.deploy_mode not in ("coordinates", "templates", "g_key"):
-        errors.append(f"deploy_mode must be coordinates, templates, or g_key, got {config.deploy_mode}")
+    if config.deploy_mode not in ("coordinates", "templates", "g_key", "hotkeys"):
+        errors.append(f"deploy_mode must be coordinates, templates, g_key, or hotkeys, got {config.deploy_mode}")
     if config.bot_mode not in ("home", "builder"):
         errors.append(f"bot_mode must be home or builder, got {config.bot_mode}")
     if config.g_key_deploy_presses < 1:
         errors.append("g_key_deploy_presses must be >= 1")
     if config.g_key_deploy_press_delay_seconds < 0:
         errors.append("g_key_deploy_press_delay_seconds must be >= 0")
+    if config.home_free_first_tap_index < 0:
+        errors.append("home_free_first_tap_index must be >= 0")
+    if config.home_hotkey_troop_g_presses < 1:
+        errors.append("home_hotkey_troop_g_presses must be >= 1")
+    if config.home_hotkey_troop_g_point_passes < 1:
+        errors.append("home_hotkey_troop_g_point_passes must be >= 1")
+    if config.home_hotkey_siege_g_presses < 1:
+        errors.append("home_hotkey_siege_g_presses must be >= 1")
+    if config.home_hotkey_all_point_passes < 1:
+        errors.append("home_hotkey_all_point_passes must be >= 1")
+    if config.home_hotkey_hero_g_presses < 1:
+        errors.append("home_hotkey_hero_g_presses must be >= 1")
     if config.builder_redeploy_slots_interval_seconds <= 0:
         errors.append("builder_redeploy_slots_interval_seconds must be > 0")
     if config.emulator_type != "ldplayer":

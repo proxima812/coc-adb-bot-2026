@@ -331,6 +331,19 @@ class VisionModule:
         logger.info("Troops deployed marker detected at {},{} score={:.3f}", match.x, match.y, match.score)
         return True
 
+    def has_free_button(self) -> bool:
+        if not self.config.free_button_template_path:
+            return False
+        match = self.find_template(
+            self.config.free_button_template_path,
+            self.config.free_button_template_threshold,
+            self.config.free_button_template_area,
+        )
+        if match is None:
+            return False
+        logger.info("Free button detected at {},{} score={:.3f}", match.x, match.y, match.score)
+        return True
+
     def has_builder_attack_button(self) -> bool:
         return self._find_any_template(
             self.config.builder_attack_template_paths,

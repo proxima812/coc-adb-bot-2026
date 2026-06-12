@@ -65,9 +65,31 @@ class BattleFlow:
 
     def _open_battle_from_base(self) -> None:
         logger.info("Opening battle from base")
-        for point in self.config.base_attack_taps:
+        if not self.config.home_free_check_enabled:
+            for point in self.config.base_attack_taps:
+                self._tap(point)
+                time.sleep(self.config.base_search_tap_delay_seconds)
+            return
+
+        for index, point in enumerate(self.config.base_attack_taps):
+            if index > self.config.home_free_first_tap_index:
+                break
             self._tap(point)
             time.sleep(self.config.base_search_tap_delay_seconds)
+        if self.vision.has_free_button():
+            logger.info("Home village free button found; collecting before attack")
+            for point in (
+                self.config.home_free_open_point,
+                self.config.home_free_collect_point,
+                self.config.home_free_close_point,
+            ):
+                self._tap(point)
+                time.sleep(self.config.base_search_tap_delay_seconds)
+        else:
+            logger.info("Home village free button was not detected; continuing attack")
+
+        self._tap(self.config.home_attack_start_point)
+        time.sleep(self.config.base_search_tap_delay_seconds)
 
     def _wait_until_attack_ready(self) -> None:
         logger.info("Waiting until attack button is ready")
@@ -134,6 +156,9 @@ class BattleFlow:
         if self.config.deploy_mode == "templates":
             self._deploy_army_by_templates()
             return
+        if self.config.deploy_mode == "hotkeys":
+            self._deploy_army_by_hotkeys()
+            return
 
         logger.info("Deploying configured coordinate plan")
         for step in self.config.deploy_plan:
@@ -196,6 +221,17 @@ class BattleFlow:
 
     def _prepare_battle_camera(self) -> None:
         if not self.config.battle_camera_prepare_enabled:
+            return
+        if self.config.battle_camera_direct_ctrl_scroll_enabled:
+            logger.info(
+                "Preparing battle camera with direct Ctrl+mouse wheel: ticks={}",
+                self.config.battle_camera_direct_ctrl_scroll_ticks,
+            )
+            self.device.ctrl_mouse_wheel_zoom_out(self.config.battle_camera_direct_ctrl_scroll_ticks)
+            time.sleep(self.config.battle_camera_center_settle_seconds)
+            if self.config.calibration_overlay_enabled and self.config.calibration_overlay_after_camera_prepare:
+                screenshot = self.vision.screenshot_array()
+                self.calibration.save_overlay(screenshot, self.config.calibration_overlay_dir, "after-camera-prepare")
             return
         logger.info(
             "Preparing battle camera: adb_zoom_out_attempts={} pan_enabled={} pan_repeats={}",
@@ -305,6 +341,64 @@ class BattleFlow:
             logger.info("Reinforcing {} with configured G deploy points", step.name)
             self._tap_neighbor_batches(self._fast_deploy_points_for_step(step))
         self._verify_troops_deployed(step)
+
+    def _deploy_army_by_hotkeys(self) -> None:
+        logger.info("Deploying home village army by direct LDPlayer hotkeys")
+        self.device.press_emulator_key(
+            self.config.home_hotkey_troop_key,
+            1,
+            self.config.home_hotkey_key_delay_seconds,
+        )
+        self._press_g_point_passes(
+            self.config.home_hotkey_troop_key,
+            self.config.home_hotkey_troop_g_point_passes,
+        )
+
+        for slot_key in self.config.home_hotkey_all_point_keys:
+            self.device.press_emulator_key(slot_key, 1, self.config.home_hotkey_key_delay_seconds)
+            self._press_g_point_passes(slot_key, self.config.home_hotkey_all_point_passes)
+
+        spell_step = next((step for step in self.config.deploy_plan if step.name == "spells"), None)
+        if spell_step is None:
+            logger.warning("Spell step not found; skipping hotkey spell deploy")
+            return
+        self.device.press_emulator_key(
+            self.config.home_hotkey_spell_key,
+            1,
+            self.config.home_hotkey_key_delay_seconds,
+        )
+        self._deploy_random_points(spell_step)
+        self._activate_hotkey_hero_abilities()
+
+    def _activate_hotkey_hero_abilities(self) -> None:
+        if not self.config.home_hotkey_hero_keys:
+            return
+        if self.config.home_hotkey_hero_ability_delay_seconds > 0:
+            logger.info(
+                "Waiting before hotkey hero abilities: {} seconds",
+                self.config.home_hotkey_hero_ability_delay_seconds,
+            )
+            time.sleep(self.config.home_hotkey_hero_ability_delay_seconds)
+        logger.info("Activating hotkey hero abilities: {}", ", ".join(self.config.home_hotkey_hero_keys))
+        for hero_key in self.config.home_hotkey_hero_keys:
+            self.device.press_emulator_key(hero_key, 1, self.config.home_hotkey_key_delay_seconds)
+
+    def _press_g_point_passes(self, slot_key: str, passes: int) -> None:
+        logger.info(
+            "Deploying slot {} through G points: points={} passes={}",
+            slot_key,
+            ", ".join(self.config.home_hotkey_g_point_keys),
+            passes,
+        )
+        for pass_index in range(1, passes + 1):
+            logger.info("Slot {} G-point pass {}/{}", slot_key, pass_index, passes)
+            for point_key in self.config.home_hotkey_g_point_keys:
+                self.device.press_emulator_key_combo(
+                    self.config.g_key_deploy_key,
+                    point_key,
+                    1,
+                    self.config.g_key_deploy_press_delay_seconds,
+                )
 
     def _fast_deploy_points_for_step(self, step: DeployStep) -> list[tuple[float, float]]:
         return self._with_neighbor_points(self._deploy_points_for_step(step.deploy_point_group))
