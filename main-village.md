@@ -142,19 +142,23 @@
 
 - `battle_camera_prepare_enabled = true`
 
-Текущая логика:
+Сейчас активен прямой ctrl+scroll (см. §11), поэтому путь с ADB pinch и pan пропускается ранним возвратом из `_prepare_battle_camera()`. Старый pinch-путь работает только если выключить `battle_camera_direct_ctrl_scroll_enabled`.
 
-1. Делает `battle_camera_zoom_out_attempts = 2` ADB pinch zoom-out.
-2. Длительность каждого zoom-out:
-   - `battle_camera_zoom_out_seconds = 0.35`
-3. После каждого zoom-out ждет:
-   - `battle_camera_pan_settle_seconds = 0.35`
-4. Pan выключен:
-   - `battle_camera_pan_enabled = false`
-5. После подготовки ждет:
-   - `battle_camera_center_settle_seconds = 0.25`
-6. Так как `calibration_overlay_enabled = true` и `calibration_overlay_after_camera_prepare = true`, сохраняет overlay:
+Если включен ctrl+scroll путь:
+
+1. `device.ctrl_mouse_wheel_zoom_out(ticks)` — прямой Ctrl+wheel down.
+2. После zoom-out ждет `battle_camera_center_settle_seconds = 0.25`.
+3. Если `calibration_overlay_enabled = true` и `calibration_overlay_after_camera_prepare = true`, сохраняет overlay:
    - `logs/calibration/*-after-camera-prepare.png`
+
+Если включен старый pinch-путь:
+
+1. `battle_camera_zoom_out_attempts = 2` ADB pinch zoom-out.
+2. Длительность каждого zoom-out: `battle_camera_zoom_out_seconds = 0.35`.
+3. После каждого zoom-out ждет `battle_camera_pan_settle_seconds = 0.35`.
+4. Pan выключен: `battle_camera_pan_enabled = false`.
+5. После подготовки ждет `battle_camera_center_settle_seconds = 0.25`.
+6. Overlay сохраняется при тех же условиях.
 
 ## 9. Режим деплоя
 
@@ -175,15 +179,15 @@
 
 В `hotkeys` режиме бот не идет по обычному coordinate `deploy_plan`, кроме шага спеллов. Порядок такой:
 
-1. Нажимает `1`.
-2. Для драконов проходит все точки `G+1..G+8` три раза подряд. Это 24 combo-нажатия для 10 драконов, чтобы высадить наверняка.
-3. Нажимает `2` - осадная машина, затем проходит все точки `G+1..G+8`.
-4. Нажимает `3`, затем проходит все точки `G+1..G+8`.
-5. Нажимает `4`, затем проходит все точки `G+1..G+8`.
-6. Нажимает `5`, затем проходит все точки `G+1..G+8`.
-7. Нажимает `6`, затем проходит все точки `G+1..G+8`.
-8. Нажимает `7`.
-9. Спеллы кидаются как раньше, случайными точками в середину карты.
+1. Нажимает `home_hotkey_troop_key = 1`.
+2. Проходит все точки `G+1..G+8` подряд `home_hotkey_troop_g_point_passes = 3` раза.
+3. Для каждой клавиши из `home_hotkey_all_point_keys = 2,3,4,5,6` (осадная машина и герои):
+   - Нажимает клавишу.
+   - Проходит все точки `G+1..G+8` подряд `home_hotkey_all_point_passes = 1` раз.
+4. Нажимает `home_hotkey_spell_key = 7` и кидает спеллы (см. §17).
+5. После спеллов вызывается `_activate_hotkey_hero_abilities()`:
+   - Ждет `home_hotkey_hero_ability_delay_seconds = 2.0`.
+   - Жмет каждую клавишу из `home_hotkey_hero_keys = 3,4,5,6` по одному разу.
 
 Текущие параметры:
 
@@ -323,37 +327,30 @@
 
 - `troop_deploy_verify_retries = 2`
 
-## 16. Способности героев
+## 16. Способности героев (coordinate flow)
 
-Этот механизм относится к старому coordinate flow. В текущем `hotkeys` режиме слоты `3..6` деплоятся через `G`, отдельный `_activate_hero_abilities()` перед спеллами не вызывается.
+Этот механизм относится к старому `coordinates` режиму. В текущем `hotkeys` режиме `_activate_hero_abilities()` не вызывается; вместо него после спеллов отрабатывает `_activate_hotkey_hero_abilities()` (см. §10 шаг 5).
 
-Текущие слоты способностей:
+Coordinate flow:
 
-- `hero_3`
-- `hero_4`
-- `hero_5`
-- `hero_6`
+1. Ждет `hero_ability_delay_seconds`.
+2. Тапает координаты слотов из `hero_ability_slots = hero_3..hero_6`.
+3. Между тапами ждет `hero_ability_tap_delay_seconds`.
 
-Порядок:
-
-1. Ждет `hero_ability_delay_seconds = 0.3`.
-2. Тапает координаты слотов `hero_3..hero_6`.
-3. Между тапами ждет `hero_ability_tap_delay_seconds = 0.15`.
-
-`battle_machine` в этом списке сейчас не указан.
+`battle_machine` в `hero_ability_slots` не указан.
 
 ## 17. Спеллы
 
-В текущем `hotkeys` режиме бот нажимает клавишу `7`, затем использует старую логику случайных точек по центру карты:
+В текущем `hotkeys` режиме бот нажимает `home_hotkey_spell_key = 7`, затем кидает случайные спеллы. Hero abilities активируются ПОСЛЕ спеллов (см. §10 шаг 5), а не до.
 
-1. Перед спеллами уже активированы hero abilities.
-2. Бот ждет `pre_spell_delay_seconds = 0.2`.
-3. Тапает слот spells `54.19%,85.67%`.
-4. Выбирает случайное количество тапов от `11` до `13`.
-5. Каждый тап идет в случайную точку внутри:
-   - `spell_deploy_area.x = 35..65`
-   - `spell_deploy_area.y = 35..65`
-6. Между спелл-тапами ждет `spell_tap_delay_seconds = 0.08`.
+1. Бот нажимает клавишу `7`.
+2. Берет шаг `spells` из `deploy_plan`.
+3. `_deploy_random_points(step)`:
+   - Выбирает случайное количество тапов от `random_taps_min = 11` до `random_taps_max = 13`.
+   - Каждый тап в случайную точку внутри `spell_deploy_area.x = 35..65`, `y = 35..65`.
+   - Между тапами ждет `spell_tap_delay_seconds = 0.08`.
+
+`pre_spell_delay_seconds` в hotkeys-пути не используется — он применяется только в coordinate flow перед `_activate_hero_abilities`.
 
 ## 18. Ожидание после деплоя
 
@@ -381,6 +378,6 @@
 - Активный режим деплоя: `hotkeys`.
 - До старта боя бот проверяет `FREE`; если найден, выполняет сбор и потом стартует бой.
 - Лут-чек выключен, бот атакует первый найденный бой.
-- Камера перед деплоем делает прямой `Ctrl+mouse wheel down`.
-- Войска деплоятся клавишами `1`, `2`, `3..6`, `7` и `G`.
-- Бой завершается принудительно через 40 секунд после деплоя.
+- Камера перед деплоем делает прямой `Ctrl+mouse wheel down`; pinch/pan-путь выполняется только если выключить direct ctrl-scroll.
+- Войска деплоятся клавишами `1`, `2..6`, `7` и `G`. Способности героев (`3..6`) активируются ПОСЛЕ спеллов.
+- Бой завершается принудительно через `wait_after_deploy_seconds` (текущий конфиг: 40) секунд после деплоя.
