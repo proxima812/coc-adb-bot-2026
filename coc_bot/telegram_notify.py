@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -59,6 +60,67 @@ class TelegramNotifier:
             return False
         self.chat_id = str(chat_id)
         return True
+
+    def send_photo(self, photo: bytes, caption: str = "", filename: str = "screenshot.png") -> bool:
+        if not self.token:
+            logger.warning("Telegram bot token is not configured")
+            return False
+        if not photo:
+            logger.warning("Telegram send_photo called with empty photo")
+            return False
+
+        chat_id = self.chat_id or self._latest_chat_id()
+        if not chat_id:
+            logger.warning("Telegram chat id is not configured; send a message to the bot or set TELEGRAM_CHAT_ID")
+            return False
+
+        boundary = f"----coc-bot-{secrets.token_hex(8)}"
+        body = self._build_multipart(boundary, chat_id, caption, photo, filename)
+        request = urllib.request.Request(
+            self._api_url("sendPhoto"),
+            data=body,
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:
+                raw = response.read()
+        except Exception as exc:
+            logger.warning("Telegram send_photo failed: {}", exc)
+            return False
+
+        try:
+            data = json.loads(raw.decode("utf-8"))
+        except json.JSONDecodeError:
+            logger.warning("Telegram send_photo returned invalid JSON")
+            return False
+
+        if not data.get("ok"):
+            logger.warning("Telegram send_photo failed: {}", data)
+            return False
+        self.chat_id = str(chat_id)
+        return True
+
+    @staticmethod
+    def _build_multipart(boundary: str, chat_id: str, caption: str, photo: bytes, filename: str) -> bytes:
+        lines: list[bytes] = []
+        delim = f"--{boundary}".encode("utf-8")
+        lines.append(delim)
+        lines.append(b'Content-Disposition: form-data; name="chat_id"')
+        lines.append(b"")
+        lines.append(str(chat_id).encode("utf-8"))
+        if caption:
+            lines.append(delim)
+            lines.append(b'Content-Disposition: form-data; name="caption"')
+            lines.append(b"")
+            lines.append(caption.encode("utf-8"))
+        lines.append(delim)
+        lines.append(f'Content-Disposition: form-data; name="photo"; filename="{filename}"'.encode("utf-8"))
+        lines.append(b"Content-Type: image/png")
+        lines.append(b"")
+        lines.append(photo)
+        lines.append(f"--{boundary}--".encode("utf-8"))
+        lines.append(b"")
+        return b"\r\n".join(lines)
 
     def _latest_chat_id(self) -> str:
         try:

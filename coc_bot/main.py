@@ -114,12 +114,14 @@ def run_home_loop(
     max_attacks: int,
 ) -> None:
     completed_attacks = 0
+    notifier = TelegramNotifier()
     while True:
         try:
             battle_flow.dismiss_popups()
             health.check_before_cycle()
             battle_flow.run_once()
             completed_attacks += 1
+            _send_post_attack_screenshot(notifier, battle_flow.device, completed_attacks)
             if max_attacks:
                 logger.info("Completed attacks: {}/{}", completed_attacks, max_attacks)
                 if completed_attacks >= max_attacks:
@@ -167,6 +169,8 @@ def run_account_cycle(
                 battle_flow.run_once()
                 completed += 1
                 completed_by_account[account] = completed
+                total_completed = sum(completed_by_account.values())
+                _send_post_attack_screenshot(notifier, device, total_completed)
                 logger.info("Account {} completed attacks: {}/{}", account, completed, attacks_per_account)
                 time.sleep(config.cycle_delay_seconds)
             except KeyboardInterrupt:
@@ -194,6 +198,17 @@ def run_account_cycle(
     account_lines = "\n".join(f"- {account}: {completed_by_account.get(account, 0)} attacks" for account in accounts)
     notifier.send(f"All attacks completed. Total: {total_attacks}.\nAccounts:\n{account_lines}")
     logger.info("All account-cycle attacks finished; stopping bot")
+
+
+def _send_post_attack_screenshot(notifier: TelegramNotifier, device: AdbDevice, attack_number: int) -> None:
+    if not notifier.token:
+        return
+    try:
+        photo = device.screenshot()
+    except Exception as exc:
+        logger.warning("Post-attack screenshot capture failed: {}", exc)
+        return
+    notifier.send_photo(photo, caption=f"текущая атака {attack_number}")
 
 
 def run_builder_loop(
