@@ -33,6 +33,8 @@ Builder-режим запускается, когда `bot_mode = builder`.
 Каждая итерация:
 
 1. `health.check_before_cycle()`
+   - Before `builder_flow.run_once()`, Telegram receives a pre-attack screenshot with caption `Before attack N`.
+   - When the completed builder-attack counter reaches `60`, Telegram receives one one-time `60 attacks completed.` message.
 2. `builder_flow.run_once()`
 3. Увеличение счетчика завершенных builder-атак.
 4. Если задан `max_attacks`, проверка лимита.

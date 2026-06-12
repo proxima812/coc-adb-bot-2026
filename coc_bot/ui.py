@@ -69,15 +69,21 @@ class UiTheme:
 class BotProcessController:
     """Управление дочерним процессом бота. API стабилен — покрыт тестами."""
 
-    def __init__(self, process_factory: Callable[[int, bool, str], subprocess.Popen] | None = None) -> None:
+    def __init__(self, process_factory: Callable[[int, bool, str, int], subprocess.Popen] | None = None) -> None:
         self._process_factory = process_factory or self._default_process_factory
         self._process: subprocess.Popen | None = None
         self._last_exit_code: int | None = None
 
-    def start(self, max_attacks: int = 0, account_cycle: bool = False, bot_mode: str = "home") -> bool:
+    def start(
+        self,
+        max_attacks: int = 0,
+        account_cycle: bool = False,
+        bot_mode: str = "home",
+        home_troop_slots: int = 1,
+    ) -> bool:
         if self.is_running():
             return False
-        self._process = self._process_factory(max_attacks, account_cycle, bot_mode)
+        self._process = self._process_factory(max_attacks, account_cycle, bot_mode, home_troop_slots)
         self._last_exit_code = None
         return True
 
@@ -96,9 +102,15 @@ class BotProcessController:
         self._process = None
         return True
 
-    def restart(self, max_attacks: int = 0, account_cycle: bool = False, bot_mode: str = "home") -> bool:
+    def restart(
+        self,
+        max_attacks: int = 0,
+        account_cycle: bool = False,
+        bot_mode: str = "home",
+        home_troop_slots: int = 1,
+    ) -> bool:
         self.stop()
-        return self.start(max_attacks, account_cycle, bot_mode)
+        return self.start(max_attacks, account_cycle, bot_mode, home_troop_slots)
 
     def switch_account(self, account_name: str) -> subprocess.Popen:
         root = Path(__file__).resolve().parent.parent
@@ -143,9 +155,16 @@ class BotProcessController:
         return self._last_exit_code
 
     @staticmethod
-    def _default_process_factory(max_attacks: int = 0, account_cycle: bool = False, bot_mode: str = "home") -> subprocess.Popen:
+    def _default_process_factory(
+        max_attacks: int = 0,
+        account_cycle: bool = False,
+        bot_mode: str = "home",
+        home_troop_slots: int = 1,
+    ) -> subprocess.Popen:
         root = Path(__file__).resolve().parent.parent
         command = [sys.executable, "-m", "coc_bot.main", "--bot-mode", bot_mode]
+        if bot_mode == "home":
+            command.extend(["--home-troop-slots", str(home_troop_slots)])
         if account_cycle:
             command.append("--account-cycle")
         if max_attacks:
@@ -259,6 +278,7 @@ class BotControlUi:
         self._was_running = False
 
         self.bot_mode = ctk.StringVar(value="home")
+        self.home_troop_slots = ctk.IntVar(value=1)
 
         self._build_layout()
 
@@ -291,6 +311,7 @@ class BotControlUi:
         self._build_status_pill(sidebar_inner)
         self._build_controls_card(sidebar_inner)
         self._build_mode_card(sidebar_inner)
+        self._build_strategy_card(sidebar_inner)
         self._build_accounts_card(sidebar_inner)
         self._build_footer(sidebar_inner)
 
@@ -472,6 +493,25 @@ class BotControlUi:
         self._mode_switch.set("Home village")
         self._mode_switch.pack(fill="x")
 
+    def _build_strategy_card(self, parent: ctk.CTkFrame) -> None:
+        card = self._card(parent, title="Strategy", subtitle="Home troop slot layout")
+
+        self._strategy_switch = ctk.CTkSegmentedButton(
+            card,
+            values=["1 slot", "2 slots", "3 slots"],
+            command=self._on_strategy_changed,
+            fg_color=self.theme.panel_hi,
+            selected_color=self.theme.accent,
+            selected_hover_color=self.theme.accent_hover,
+            unselected_color=self.theme.panel_hi,
+            unselected_hover_color="#2a3045",
+            text_color=self.theme.text,
+            corner_radius=10,
+            height=34,
+        )
+        self._strategy_switch.set("1 slot")
+        self._strategy_switch.pack(fill="x")
+
     def _build_accounts_card(self, parent: ctk.CTkFrame) -> None:
         card = self._card(parent, title="Account", subtitle="Switch active profile")
         for name in self.accounts:
@@ -548,13 +588,20 @@ class BotControlUi:
     def _on_mode_changed(self, value: str) -> None:
         self.bot_mode.set("home" if value == "Home village" else "builder")
 
+    def _on_strategy_changed(self, value: str) -> None:
+        self.home_troop_slots.set(int(value.split()[0]))
+
     def start_bot(self) -> None:
-        started = self.controller.start(bot_mode=self.bot_mode.get())
+        started = self.controller.start(bot_mode=self.bot_mode.get(), home_troop_slots=self.home_troop_slots.get())
         self.append_ui_log("Bot started." if started else "Bot is already running.")
         self.refresh_status()
 
     def start_25_attacks(self) -> None:
-        started = self.controller.start(account_cycle=True, bot_mode="home")
+        started = self.controller.start(
+            account_cycle=True,
+            bot_mode="home",
+            home_troop_slots=self.home_troop_slots.get(),
+        )
         self.append_ui_log(
             "Bot started for 25 attacks on 3 accounts." if started else "Bot is already running."
         )
@@ -602,7 +649,7 @@ class BotControlUi:
 
     def _after_restart_stop(self) -> None:
         self._stop_button.configure(state="normal", text="Stop")
-        self.controller.start(bot_mode=self.bot_mode.get())
+        self.controller.start(bot_mode=self.bot_mode.get(), home_troop_slots=self.home_troop_slots.get())
         self.append_ui_log("Bot restarted.")
         self.refresh_status()
 

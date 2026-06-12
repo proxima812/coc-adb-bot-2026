@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import random
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
 
 
@@ -176,9 +176,12 @@ class BotConfig:
     g_key_deploy_presses: int = 5
     g_key_deploy_press_delay_seconds: float = 0.05
     home_hotkey_troop_key: str = "1"
+    home_hotkey_troop_keys: list[str] = field(default_factory=lambda: ["1"])
     home_hotkey_troop_g_presses: int = 8
-    home_hotkey_g_point_keys: list[str] = field(default_factory=lambda: ["1", "2", "3", "4", "5", "6", "7", "8"])
-    home_hotkey_troop_g_point_passes: int = 3
+    home_hotkey_troop_g_point_keys: list[str] = field(default_factory=lambda: ["9"])
+    home_hotkey_troop_g_point_hold_seconds: float = 1.0
+    home_hotkey_g_point_keys: list[str] = field(default_factory=lambda: ["1"])
+    home_hotkey_troop_g_point_passes: int = 2
     home_hotkey_siege_key: str = "2"
     home_hotkey_siege_g_presses: int = 4
     home_hotkey_all_point_keys: list[str] = field(default_factory=lambda: ["2", "3", "4", "5", "6"])
@@ -208,7 +211,6 @@ class BotConfig:
             RelativePoint(x=75.81, y=44.0),
             RelativePoint(x=86.31, y=57.78),
             RelativePoint(x=17.63, y=46.11),
-            RelativePoint(x=77.44, y=72.0),
             RelativePoint(x=12.56, y=65.89),
         ]
     )
@@ -225,7 +227,6 @@ class BotConfig:
             RelativePoint(x=75.81, y=44.0),
             RelativePoint(x=86.31, y=57.78),
             RelativePoint(x=17.63, y=46.11),
-            RelativePoint(x=77.44, y=72.0),
             RelativePoint(x=12.56, y=65.89),
         ]
     )
@@ -265,7 +266,6 @@ class BotConfig:
             DeployTarget(name="target_04", template_path="assets/templates/deploy/target_04.png"),
             DeployTarget(name="target_05", template_path="assets/templates/deploy/target_05.png"),
             DeployTarget(name="target_06", template_path="assets/templates/deploy/target_06.png"),
-            DeployTarget(name="target_07", template_path="assets/templates/deploy/target_07.png"),
             DeployTarget(name="target_08", template_path="assets/templates/deploy/target_08.png"),
         ]
     )
@@ -602,6 +602,7 @@ def validate_config(config: BotConfig) -> None:
         "spell_tap_delay_seconds",
         "account_switch_tap_delay_seconds",
         "home_hotkey_key_delay_seconds",
+        "home_hotkey_troop_g_point_hold_seconds",
         "home_hotkey_hero_ability_delay_seconds",
         "builder_first_slot_retap_interval_seconds",
         "builder_redeploy_slots_interval_seconds",
@@ -657,6 +658,8 @@ def validate_config(config: BotConfig) -> None:
         errors.append("home_free_first_tap_index must be >= 0")
     if config.home_hotkey_troop_g_presses < 1:
         errors.append("home_hotkey_troop_g_presses must be >= 1")
+    if not config.home_hotkey_troop_keys:
+        errors.append("home_hotkey_troop_keys must contain at least one key")
     if config.home_hotkey_troop_g_point_passes < 1:
         errors.append("home_hotkey_troop_g_point_passes must be >= 1")
     if config.home_hotkey_siege_g_presses < 1:
@@ -672,6 +675,36 @@ def validate_config(config: BotConfig) -> None:
 
     if errors:
         raise ValueError("Invalid bot config:\n- " + "\n- ".join(errors))
+
+
+def apply_home_hotkey_strategy(config: BotConfig, troop_slots: int) -> BotConfig:
+    if troop_slots not in (2, 3):
+        if troop_slots == 1:
+            return replace(
+                config,
+                home_hotkey_troop_keys=[config.home_hotkey_troop_key],
+                home_hotkey_troop_g_point_keys=["9"],
+                home_hotkey_troop_g_point_hold_seconds=1.0,
+                home_hotkey_g_point_keys=["1"],
+            )
+        raise ValueError("home hotkey strategy troop slots must be 1, 2, or 3")
+
+    troop_keys = [str(index) for index in range(1, troop_slots + 1)]
+    siege_key = str(troop_slots + 1)
+    hero_keys = [str(index) for index in range(troop_slots + 2, troop_slots + 6)]
+    spell_key = str(troop_slots + 6)
+    return replace(
+        config,
+        home_hotkey_troop_key=troop_keys[0],
+        home_hotkey_troop_keys=troop_keys,
+        home_hotkey_troop_g_point_keys=["9"],
+        home_hotkey_troop_g_point_hold_seconds=1.0,
+        home_hotkey_g_point_keys=["1"],
+        home_hotkey_siege_key=siege_key,
+        home_hotkey_all_point_keys=[siege_key, *hero_keys],
+        home_hotkey_hero_keys=hero_keys,
+        home_hotkey_spell_key=spell_key,
+    )
 
 
 def load_config(path: str | Path = "config.json") -> BotConfig:

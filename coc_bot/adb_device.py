@@ -497,6 +497,35 @@ class AdbDevice:
             user32.keybd_event(first_vk, 0, keyeventf_keyup, 0)
             time.sleep(delay_seconds)
 
+    def hold_emulator_key_combo(self, first_key: str, second_key: str, hold_seconds: float) -> None:
+        if self.dry_run:
+            logger.info("DRY-RUN emulator key combo hold {}+{} seconds={}", first_key, second_key, hold_seconds)
+            return
+        if hold_seconds <= 0:
+            return
+
+        self._activate_emulator_window()
+        first_vk = self._virtual_key_code(first_key)
+        second_vk = self._virtual_key_code(second_key)
+        logger.debug("Holding emulator key combo {}+{} seconds={}", first_key, second_key, hold_seconds)
+        self._action_log(
+            "LDPlayer key combo hold: first_key={} second_key={} hold_seconds={}",
+            first_key,
+            second_key,
+            hold_seconds,
+        )
+        user32 = ctypes.windll.user32
+        keyeventf_keyup = 0x0002
+        user32.keybd_event(first_vk, 0, 0, 0)
+        time.sleep(0.01)
+        user32.keybd_event(second_vk, 0, 0, 0)
+        try:
+            time.sleep(hold_seconds)
+        finally:
+            user32.keybd_event(second_vk, 0, keyeventf_keyup, 0)
+            time.sleep(0.01)
+            user32.keybd_event(first_vk, 0, keyeventf_keyup, 0)
+
     @staticmethod
     def _find_emulator_window() -> int:
         user32 = ctypes.windll.user32

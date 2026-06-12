@@ -344,19 +344,26 @@ class BattleFlow:
 
     def _deploy_army_by_hotkeys(self) -> None:
         logger.info("Deploying home village army by direct LDPlayer hotkeys")
-        self.device.press_emulator_key(
-            self.config.home_hotkey_troop_key,
-            1,
-            self.config.home_hotkey_key_delay_seconds,
-        )
-        self._press_g_point_passes(
-            self.config.home_hotkey_troop_key,
-            self.config.home_hotkey_troop_g_point_passes,
-        )
+        troop_keys = self.config.home_hotkey_troop_keys or [self.config.home_hotkey_troop_key]
+        for troop_key in troop_keys:
+            self.device.press_emulator_key(
+                troop_key,
+                1,
+                self.config.home_hotkey_key_delay_seconds,
+            )
+            self._hold_g_points(
+                troop_key,
+                self.config.home_hotkey_troop_g_point_keys,
+                self.config.home_hotkey_troop_g_point_hold_seconds,
+            )
 
         for slot_key in self.config.home_hotkey_all_point_keys:
             self.device.press_emulator_key(slot_key, 1, self.config.home_hotkey_key_delay_seconds)
-            self._press_g_point_passes(slot_key, self.config.home_hotkey_all_point_passes)
+            self._press_g_point_passes(
+                slot_key,
+                self.config.home_hotkey_all_point_passes,
+                self.config.home_hotkey_g_point_keys,
+            )
 
         spell_step = next((step for step in self.config.deploy_plan if step.name == "spells"), None)
         if spell_step is None:
@@ -383,22 +390,36 @@ class BattleFlow:
         for hero_key in self.config.home_hotkey_hero_keys:
             self.device.press_emulator_key(hero_key, 1, self.config.home_hotkey_key_delay_seconds)
 
-    def _press_g_point_passes(self, slot_key: str, passes: int) -> None:
+    def _press_g_point_passes(self, slot_key: str, passes: int, point_keys: list[str]) -> None:
         logger.info(
             "Deploying slot {} through G points: points={} passes={}",
             slot_key,
-            ", ".join(self.config.home_hotkey_g_point_keys),
+            ", ".join(point_keys),
             passes,
         )
         for pass_index in range(1, passes + 1):
             logger.info("Slot {} G-point pass {}/{}", slot_key, pass_index, passes)
-            for point_key in self.config.home_hotkey_g_point_keys:
+            for point_key in point_keys:
                 self.device.press_emulator_key_combo(
                     self.config.g_key_deploy_key,
                     point_key,
                     1,
                     self.config.g_key_deploy_press_delay_seconds,
                 )
+
+    def _hold_g_points(self, slot_key: str, point_keys: list[str], hold_seconds: float) -> None:
+        logger.info(
+            "Deploying slot {} through held G points: points={} hold_seconds={}",
+            slot_key,
+            ", ".join(point_keys),
+            hold_seconds,
+        )
+        for point_key in point_keys:
+            self.device.hold_emulator_key_combo(
+                self.config.g_key_deploy_key,
+                point_key,
+                hold_seconds,
+            )
 
     def _fast_deploy_points_for_step(self, step: DeployStep) -> list[tuple[float, float]]:
         return self._with_neighbor_points(self._deploy_points_for_step(step.deploy_point_group))

@@ -29,6 +29,8 @@
 
 1. `battle_flow.dismiss_popups()`
 2. `health.check_before_cycle()`
+   - Before `battle_flow.run_once()`, Telegram receives a pre-attack screenshot with caption `Before attack N`.
+   - When the completed-attack counter reaches `60`, Telegram receives one one-time `60 attacks completed.` message.
 3. `battle_flow.run_once()`
 4. Увеличение счетчика завершенных атак.
 5. Если задан `max_attacks`, проверка лимита.
@@ -180,10 +182,10 @@
 В `hotkeys` режиме бот не идет по обычному coordinate `deploy_plan`, кроме шага спеллов. Порядок такой:
 
 1. Нажимает `home_hotkey_troop_key = 1`.
-2. Проходит все точки `G+1..G+8` подряд `home_hotkey_troop_g_point_passes = 3` раза.
+2. Зажимает `G+9` на `home_hotkey_troop_g_point_hold_seconds = 1.0` секунды.
 3. Для каждой клавиши из `home_hotkey_all_point_keys = 2,3,4,5,6` (осадная машина и герои):
    - Нажимает клавишу.
-   - Проходит все точки `G+1..G+8` подряд `home_hotkey_all_point_passes = 1` раз.
+   - Высаживает только в точку `G+1` один раз.
 4. Нажимает `home_hotkey_spell_key = 7` и кидает спеллы (см. §17).
 5. После спеллов вызывается `_activate_hotkey_hero_abilities()`:
    - Ждет `home_hotkey_hero_ability_delay_seconds = 2.0`.
@@ -193,8 +195,9 @@
 
 - `home_hotkey_troop_key = 1`
 - `home_hotkey_troop_g_presses = 8`
-- `home_hotkey_g_point_keys = 1, 2, 3, 4, 5, 6, 7, 8`
-- `home_hotkey_troop_g_point_passes = 3`
+- `home_hotkey_troop_g_point_keys = 9`
+- `home_hotkey_g_point_keys = 1`
+- `home_hotkey_troop_g_point_passes = 2`
 - `home_hotkey_siege_key = 2`
 - `home_hotkey_siege_g_presses = 4`
 - `home_hotkey_all_point_keys = 2, 3, 4, 5, 6`
@@ -206,6 +209,12 @@
 - `g_key_deploy_key = G`
 - `home_hotkey_key_delay_seconds = 0.05`
 - `g_key_deploy_press_delay_seconds = 0.05`
+
+UI Strategy passes `--home-troop-slots` and rebuilds the home hotkey layout in memory without writing to `config.json`:
+
+- `1 slot`: default; config values stay unchanged.
+- `2 slots`: troops `1,2`, siege `3`, heroes `4,5,6,7`, spells `8`.
+- `3 slots`: troops `1,2,3`, siege `4`, heroes `5,6,7,8`, spells `9`.
 
 ## 11. Прямой zoom-out через Ctrl+scroll
 
@@ -285,8 +294,7 @@
 4. `75.81%,44.00%`
 5. `86.31%,57.78%`
 6. `17.63%,46.11%`
-7. `77.44%,72.00%`
-8. `12.56%,65.89%`
+7. `12.56%,65.89%`
 
 Текущие `default_deploy_points` и `hero_deploy_points`:
 

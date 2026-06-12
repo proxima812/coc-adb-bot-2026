@@ -9,7 +9,7 @@ from loguru import logger
 from .adb_device import AdbDevice
 from .battle_flow import BattleFlow
 from .builder_flow import BuilderBattleFlow
-from .config import BotConfig, load_config
+from .config import BotConfig, apply_home_hotkey_strategy, load_config
 from .emulator import EmulatorLauncher
 from .health import HealthChecker
 from .recovery import RecoveryModule
@@ -17,6 +17,7 @@ from .telegram_notify import TelegramNotifier, load_dotenv
 from .vision import VisionModule
 
 DEFAULT_ACCOUNT_SEQUENCE = ("proxima", "yung_proxima", "old_proxima")
+ATTACK_MILESTONE_COUNT = 60
 
 
 def parse_args() -> argparse.Namespace:
@@ -49,6 +50,13 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="Bot flow to run. Empty uses bot_mode from config.",
     )
+    parser.add_argument(
+        "--home-troop-slots",
+        type=int,
+        choices=(1, 2, 3),
+        default=1,
+        help="Home hotkey strategy: number of troop slots before siege/heroes/spells.",
+    )
     return parser.parse_args()
 
 
@@ -75,7 +83,7 @@ def main() -> None:
     if args.attacks_per_account < 1:
         raise SystemExit("--attacks-per-account must be >= 1")
 
-    config = load_config()
+    config = apply_home_hotkey_strategy(load_config(), args.home_troop_slots)
     setup_logging(config.log_level)
     bot_mode = args.bot_mode or config.bot_mode
 
@@ -114,14 +122,16 @@ def run_home_loop(
     max_attacks: int,
 ) -> None:
     completed_attacks = 0
+    milestone_sent = False
     notifier = TelegramNotifier()
     while True:
         try:
             battle_flow.dismiss_popups()
             health.check_before_cycle()
+            _send_pre_attack_screenshot(notifier, battle_flow.device, completed_attacks + 1)
             battle_flow.run_once()
             completed_attacks += 1
-            _send_post_attack_screenshot(notifier, battle_flow.device, completed_attacks)
+            milestone_sent = _send_attack_milestone_once(notifier, completed_attacks, milestone_sent)
             if max_attacks:
                 logger.info("Completed attacks: {}/{}", completed_attacks, max_attacks)
                 if completed_attacks >= max_attacks:
@@ -156,6 +166,7 @@ def run_account_cycle(
     notifier = TelegramNotifier()
     switcher = AccountSwitcher(device, config)
     completed_by_account: dict[str, int] = {}
+    milestone_sent = False
 
     for account_index, account in enumerate(accounts):
         logger.info("Account cycle: switching to {}", account)
@@ -166,11 +177,13 @@ def run_account_cycle(
             try:
                 battle_flow.dismiss_popups()
                 health.check_before_cycle()
+                total_before_attack = sum(completed_by_account.values())
+                _send_pre_attack_screenshot(notifier, device, total_before_attack + 1)
                 battle_flow.run_once()
                 completed += 1
                 completed_by_account[account] = completed
                 total_completed = sum(completed_by_account.values())
-                _send_post_attack_screenshot(notifier, device, total_completed)
+                milestone_sent = _send_attack_milestone_once(notifier, total_completed, milestone_sent)
                 logger.info("Account {} completed attacks: {}/{}", account, completed, attacks_per_account)
                 time.sleep(config.cycle_delay_seconds)
             except KeyboardInterrupt:
@@ -200,15 +213,22 @@ def run_account_cycle(
     logger.info("All account-cycle attacks finished; stopping bot")
 
 
-def _send_post_attack_screenshot(notifier: TelegramNotifier, device: AdbDevice, attack_number: int) -> None:
+def _send_pre_attack_screenshot(notifier: TelegramNotifier, device: AdbDevice, attack_number: int) -> None:
     if not notifier.token:
         return
     try:
         photo = device.screenshot()
     except Exception as exc:
-        logger.warning("Post-attack screenshot capture failed: {}", exc)
+        logger.warning("Pre-attack screenshot capture failed: {}", exc)
         return
-    notifier.send_photo(photo, caption=f"текущая атака {attack_number}")
+    notifier.send_photo(photo, caption=f"Before attack {attack_number}")
+
+
+def _send_attack_milestone_once(notifier: TelegramNotifier, completed_attacks: int, already_sent: bool) -> bool:
+    if already_sent or completed_attacks < ATTACK_MILESTONE_COUNT:
+        return already_sent
+    notifier.send(f"{ATTACK_MILESTONE_COUNT} attacks completed.")
+    return True
 
 
 def run_builder_loop(
@@ -220,11 +240,15 @@ def run_builder_loop(
     max_attacks: int,
 ) -> None:
     completed_attacks = 0
+    milestone_sent = False
+    notifier = TelegramNotifier()
     while True:
         try:
             health.check_before_cycle()
+            _send_pre_attack_screenshot(notifier, builder_flow.device, completed_attacks + 1)
             builder_flow.run_once()
             completed_attacks += 1
+            milestone_sent = _send_attack_milestone_once(notifier, completed_attacks, milestone_sent)
             if max_attacks:
                 logger.info("Completed builder attacks: {}/{}", completed_attacks, max_attacks)
                 if completed_attacks >= max_attacks:
