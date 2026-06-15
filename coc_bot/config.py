@@ -300,16 +300,31 @@ class BotConfig:
     )
     builder_deploy_point: RelativePoint = field(default_factory=lambda: RelativePoint(x=9.69, y=51.22))
     builder_return_home_point: RelativePoint = field(default_factory=lambda: RelativePoint(x=50.38, y=83.33))
+    builder_base_camera_prepare_enabled: bool = True
+    builder_base_camera_zoom_out_ticks: int = 2
+    builder_base_camera_key_sequence: list[str] = field(default_factory=list)
+    builder_deploy_mode: str = "coordinates"
+    builder_hotkey_deploy_key: str = "G"
+    builder_hotkey_deploy_point_key: str = "0"
+    builder_hotkey_deploy_hold_seconds: float = 2.0
+    builder_hotkey_slot_keys: list[str] = field(default_factory=lambda: ["2", "3", "4", "5", "6", "7", "8"])
+    builder_first_slot_key: str = "1"
     builder_first_slot_retap_interval_seconds: float = 7.0
     builder_redeploy_slots_interval_seconds: float = 25.0
     builder_first_slot_retap_enabled: bool = False
     builder_redeploy_slots_enabled: bool = True
+    builder_g_point_sweep_enabled: bool = False
+    builder_g_point_sweep_interval_seconds: float = 45.0
+    builder_g_point_sweep_deploy_key: str = "G"
+    builder_g_point_sweep_slot_keys: list[str] = field(default_factory=lambda: ["2", "3", "4", "5", "6", "7", "8"])
+    builder_g_point_sweep_point_keys: list[str] = field(default_factory=lambda: ["1", "2", "3", "4"])
     builder_hero_ability_enabled: bool = True
     builder_hero_ability_point: RelativePoint = field(default_factory=lambda: RelativePoint(x=5.7, y=90.0))
     builder_hero_ability_interval_seconds: float = 10.0
     builder_slot_state_checks_enabled: bool = True
     builder_slot_state_check_passes: int = 2
     builder_slot_state_check_delay_seconds: float = 0.25
+    builder_continue_on_battle_marker_timeout: bool = True
     builder_battle_timeout_seconds: float = 240.0
     builder_state_poll_seconds: float = 1.0
     builder_tap_overlay_enabled: bool = True
@@ -335,6 +350,15 @@ class BotConfig:
         ]
     )
     builder_find_match_template_paths: list[str] = field(default_factory=lambda: ["assets/templates/builder/attack_2.png"])
+    builder_find_match_marker_template_paths: list[str] = field(
+        default_factory=lambda: [
+            "assets/templates/builder/find_match_axes.png",
+            "assets/templates/builder/find_match_defenses_ready.png",
+            "assets/templates/builder/find_match_troops.png",
+            "assets/templates/builder/find_match_full.png",
+            "assets/templates/builder/find_match_title.png",
+        ]
+    )
     builder_slot_not_deployed_template_paths: list[str] = field(default_factory=lambda: ["assets/templates/builder/slots/not_deployed.png"])
     builder_slot_deployed_template_paths: list[str] = field(
         default_factory=lambda: [
@@ -344,7 +368,19 @@ class BotConfig:
     )
     builder_slot_ability_ready_template_paths: list[str] = field(default_factory=lambda: ["assets/templates/builder/slots/ability_ready.png"])
     builder_hero_present_template_paths: list[str] = field(default_factory=lambda: ["assets/templates/builder/slots/hero_present.png"])
-    builder_battle_template_paths: list[str] = field(default_factory=list)
+    builder_battle_template_paths: list[str] = field(
+        default_factory=lambda: [
+            "assets/templates/builder/battle_1.png",
+            "assets/templates/builder/battle_2.png",
+            "assets/templates/builder/battle_3.png",
+            "assets/templates/builder/battle_4.png",
+            "assets/templates/builder/battle_attacker_name_tight.png",
+            "assets/templates/builder/battle_attacker_name_machine.png",
+            "assets/templates/builder/battle_attacker_name_wide.png",
+            "assets/templates/builder/battle_axes_intro.png",
+            "assets/templates/builder/battle_slot_bar.png",
+        ]
+    )
     builder_return_home_template_paths: list[str] = field(default_factory=list)
     builder_attack_template_threshold: float = 0.78
     builder_find_match_template_threshold: float = 0.78
@@ -541,6 +577,8 @@ def validate_config(config: BotConfig) -> None:
         errors.append("auto_deploy_scan_swipe_duration_ms must be >= 0")
     if config.battle_camera_zoom_out_attempts < 0:
         errors.append("battle_camera_zoom_out_attempts must be >= 0")
+    if config.builder_base_camera_zoom_out_ticks < 0:
+        errors.append("builder_base_camera_zoom_out_ticks must be >= 0")
     if config.battle_camera_pan_repeats < 0:
         errors.append("battle_camera_pan_repeats must be >= 0")
     if config.battle_camera_pan_swipe_duration_ms < 0:
@@ -606,12 +644,14 @@ def validate_config(config: BotConfig) -> None:
         "home_hotkey_hero_ability_delay_seconds",
         "builder_first_slot_retap_interval_seconds",
         "builder_redeploy_slots_interval_seconds",
+        "builder_g_point_sweep_interval_seconds",
         "builder_hero_ability_interval_seconds",
         "builder_slot_state_check_delay_seconds",
         "builder_battle_timeout_seconds",
         "builder_state_poll_seconds",
         "builder_calibration_max_screen_drift_percent",
         "builder_slot_state_area_radius_x",
+        "builder_hotkey_deploy_hold_seconds",
     ):
         if getattr(config, name) < 0:
             errors.append(f"{name} must be >= 0")
@@ -633,6 +673,7 @@ def validate_config(config: BotConfig) -> None:
         *config.next_template_paths,
         *config.builder_attack_template_paths,
         *config.builder_find_match_template_paths,
+        *config.builder_find_match_marker_template_paths,
         *config.builder_slot_not_deployed_template_paths,
         *config.builder_slot_deployed_template_paths,
         *config.builder_slot_ability_ready_template_paths,
@@ -670,6 +711,14 @@ def validate_config(config: BotConfig) -> None:
         errors.append("home_hotkey_hero_g_presses must be >= 1")
     if config.builder_redeploy_slots_interval_seconds <= 0:
         errors.append("builder_redeploy_slots_interval_seconds must be > 0")
+    if config.builder_deploy_mode not in ("coordinates", "hotkeys"):
+        errors.append(f"builder_deploy_mode must be coordinates or hotkeys, got {config.builder_deploy_mode}")
+    if not config.builder_hotkey_slot_keys:
+        errors.append("builder_hotkey_slot_keys must contain at least one key")
+    if not config.builder_g_point_sweep_slot_keys:
+        errors.append("builder_g_point_sweep_slot_keys must contain at least one key")
+    if not config.builder_g_point_sweep_point_keys:
+        errors.append("builder_g_point_sweep_point_keys must contain at least one key")
     if config.emulator_type != "ldplayer":
         errors.append(f"emulator_type must be ldplayer, got {config.emulator_type}")
 

@@ -95,8 +95,26 @@ class BuilderBattleFlow:
         if not self.config.builder_attack_taps:
             raise RuntimeError("builder_attack_taps is empty")
 
+        self._prepare_builder_base_camera()
         self._tap(self.config.builder_attack_taps[0])
         self._wait_and_tap_find_match()
+
+    def _prepare_builder_base_camera(self) -> None:
+        if not self.config.builder_base_camera_prepare_enabled:
+            return
+        if self.config.builder_base_camera_zoom_out_ticks > 0:
+            logger.info(
+                "Preparing builder base camera with direct Ctrl+mouse wheel: ticks={}",
+                self.config.builder_base_camera_zoom_out_ticks,
+            )
+            self.device.ctrl_mouse_wheel_zoom_out(self.config.builder_base_camera_zoom_out_ticks)
+        for key in self.config.builder_base_camera_key_sequence:
+            logger.info("Preparing builder base camera with key {}", key)
+            self.device.press_emulator_key(
+                key,
+                presses=1,
+                delay_seconds=self.config.home_hotkey_key_delay_seconds,
+            )
 
     def _wait_and_tap_find_match(self) -> None:
         deadline = time.monotonic() + self.config.wait_attack_ready_seconds
@@ -106,6 +124,11 @@ class BuilderBattleFlow:
             if match is not None:
                 logger.info("Builder Find Match detected at {},{} score={:.3f}", match.x, match.y, match.score)
                 self.device.tap(match.x, match.y)
+                time.sleep(self.config.tap_delay_seconds)
+                return
+            if self.vision.has_builder_find_match_marker():
+                logger.info("Builder Find Match screen marker detected; pressing configured Find Now point")
+                self._tap(fallback_point)
                 time.sleep(self.config.tap_delay_seconds)
                 return
             logger.info("Builder Find Match is not visible yet")
@@ -122,11 +145,63 @@ class BuilderBattleFlow:
                 logger.info("Builder battle detected")
                 return
             time.sleep(self.config.builder_state_poll_seconds)
+        if self.config.builder_continue_on_battle_marker_timeout:
+            logger.warning(
+                "Builder battle marker was not detected after pressing attack; continuing to direct deploy"
+            )
+            return
         raise RuntimeError("Builder battle screen was not detected after pressing attack")
 
     def _deploy_slots(self) -> None:
-        self._rapid_deploy_slots_through_g()
+        self._deploy_slots_by_configured_mode()
         self._check_builder_slot_states()
+
+    def _deploy_slots_by_configured_mode(self) -> None:
+        if self.config.builder_deploy_mode == "hotkeys":
+            self._deploy_slots_by_hotkeys()
+            return
+        self._rapid_deploy_slots_through_g()
+
+    def _deploy_slots_by_hotkeys(self) -> None:
+        logger.info(
+            "Builder hotkey deploy through {}+{} hold for {:.2f}s, then keys {}",
+            self.config.builder_hotkey_deploy_key,
+            self.config.builder_hotkey_deploy_point_key,
+            self.config.builder_hotkey_deploy_hold_seconds,
+            ",".join(self.config.builder_hotkey_slot_keys),
+        )
+        self.device.hold_emulator_key_combo(
+            self.config.builder_hotkey_deploy_key,
+            self.config.builder_hotkey_deploy_point_key,
+            self.config.builder_hotkey_deploy_hold_seconds,
+        )
+        for key in self.config.builder_hotkey_slot_keys:
+            self.device.press_emulator_key(
+                key,
+                presses=1,
+                delay_seconds=self.config.home_hotkey_key_delay_seconds,
+            )
+
+    def _deploy_builder_g_point_sweep(self) -> None:
+        logger.info(
+            "Builder G-point sweep: slots {} through {}+{}",
+            ",".join(self.config.builder_g_point_sweep_slot_keys),
+            self.config.builder_g_point_sweep_deploy_key,
+            ",".join(self.config.builder_g_point_sweep_point_keys),
+        )
+        for slot_key in self.config.builder_g_point_sweep_slot_keys:
+            self.device.press_emulator_key(
+                slot_key,
+                presses=1,
+                delay_seconds=self.config.home_hotkey_key_delay_seconds,
+            )
+            for point_key in self.config.builder_g_point_sweep_point_keys:
+                self.device.press_emulator_key_combo(
+                    self.config.builder_g_point_sweep_deploy_key,
+                    point_key,
+                    presses=1,
+                    delay_seconds=self.config.home_hotkey_key_delay_seconds,
+                )
 
     def _rapid_deploy_slots_through_g(self) -> None:
         logger.info("Builder rapid deploy slots 1-8 through G point")
@@ -174,6 +249,7 @@ class BuilderBattleFlow:
         deadline = time.monotonic() + self.config.builder_battle_timeout_seconds
         next_slot_one_at = time.monotonic() + self.config.builder_first_slot_retap_interval_seconds
         next_redeploy_at = time.monotonic() + self.config.builder_redeploy_slots_interval_seconds
+        next_g_point_sweep_at = time.monotonic() + self.config.builder_g_point_sweep_interval_seconds
         next_hero_ability_at = time.monotonic() + self.config.builder_hero_ability_interval_seconds
         while time.monotonic() < deadline:
             if self.vision.has_builder_return_home_button():
@@ -185,13 +261,24 @@ class BuilderBattleFlow:
             now = time.monotonic()
             if self.config.builder_first_slot_retap_enabled and now >= next_slot_one_at:
                 logger.info("Builder retapping slot 1")
-                self._tap(self.config.builder_troop_slots[0])
+                if self.config.builder_deploy_mode == "hotkeys":
+                    self.device.press_emulator_key(
+                        self.config.builder_first_slot_key,
+                        presses=1,
+                        delay_seconds=self.config.home_hotkey_key_delay_seconds,
+                    )
+                else:
+                    self._tap(self.config.builder_troop_slots[0])
                 next_slot_one_at = now + self.config.builder_first_slot_retap_interval_seconds
 
             if self.config.builder_redeploy_slots_enabled and now >= next_redeploy_at:
                 logger.info("Builder redeploying slots 1-8 through G")
-                self._rapid_deploy_slots_through_g()
+                self._deploy_slots_by_configured_mode()
                 next_redeploy_at = now + self.config.builder_redeploy_slots_interval_seconds
+
+            if self.config.builder_g_point_sweep_enabled and now >= next_g_point_sweep_at:
+                self._deploy_builder_g_point_sweep()
+                next_g_point_sweep_at = now + self.config.builder_g_point_sweep_interval_seconds
 
             if self.config.builder_hero_ability_enabled and now >= next_hero_ability_at:
                 if self.vision.has_builder_hero():

@@ -362,6 +362,12 @@ class VisionModule:
                 return match
         return None
 
+    def has_builder_find_match_marker(self) -> bool:
+        return self._find_any_template(
+            self.config.builder_find_match_marker_template_paths,
+            self.config.builder_find_match_template_threshold,
+        )
+
     def has_builder_battle_marker(self) -> bool:
         return self._find_any_template(
             self.config.builder_battle_template_paths,

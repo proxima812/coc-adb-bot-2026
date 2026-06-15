@@ -31,6 +31,14 @@ def _require_ctk() -> Any:
     return ctk
 
 
+def mode_dependent_control_states(bot_mode: str) -> dict[str, str]:
+    state = "disabled" if bot_mode == "builder" else "normal"
+    return {
+        "strategy": state,
+        "account_cycle": state,
+    }
+
+
 class UiTheme:
     """Палитра приложения.
 
@@ -248,6 +256,7 @@ class BotControlUi:
     """Главное окно панели управления ботом, построенное на CustomTkinter."""
 
     SIDEBAR_WIDTH = 320
+    LOG_PANEL_ENABLED = False
     LOG_POLL_MS = 250
     STATUS_POLL_MS = 1000
 
@@ -273,7 +282,7 @@ class BotControlUi:
 
         self.controller = controller or BotProcessController()
         self.log_path = log_path or Path("logs/bot.log")
-        self._tailer = _LogTailer(self.log_path)
+        self._tailer = _LogTailer(self.log_path) if self.LOG_PANEL_ENABLED else None
         self._stop_in_progress = False
         self._was_running = False
 
@@ -283,10 +292,14 @@ class BotControlUi:
         self._build_layout()
 
         self.root.protocol("WM_DELETE_WINDOW", self.close)
-        self._insert_log_text("Log output will appear here after the bot starts.\n", "muted")
-        self._tailer.start()
+        if self._tailer is not None:
+            self._insert_log_text("Log output will appear here after the bot starts.\n", "muted")
+            self._tailer.start()
         self.refresh_status()
-        self._poll_log()
+        if self.LOG_PANEL_ENABLED:
+            self._poll_log()
+        else:
+            self._poll_status()
 
     # ---------- layout ----------
 
@@ -314,6 +327,11 @@ class BotControlUi:
         self._build_strategy_card(sidebar_inner)
         self._build_accounts_card(sidebar_inner)
         self._build_footer(sidebar_inner)
+        self._sync_mode_controls()
+
+        if not self.LOG_PANEL_ENABLED:
+            self._build_runtime_panel(shell)
+            return
 
         log_panel = ctk.CTkFrame(
             shell,
@@ -368,6 +386,38 @@ class BotControlUi:
         self.log_view.pack(fill="both", expand=True)
         self._configure_log_tags()
         self.log_view.configure(state="disabled")
+
+    def _build_runtime_panel(self, shell: ctk.CTkFrame) -> None:
+        runtime_panel = ctk.CTkFrame(
+            shell,
+            fg_color=self.theme.panel,
+            border_color=self.theme.border,
+            border_width=1,
+            corner_radius=14,
+        )
+        runtime_panel.pack(side="right", fill="both", expand=True)
+        runtime_inner = ctk.CTkFrame(runtime_panel, fg_color="transparent")
+        runtime_inner.pack(fill="both", expand=True, padx=18, pady=16)
+
+        ctk.CTkLabel(
+            runtime_inner,
+            text="Runtime",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=self.theme.text,
+        ).pack(anchor="w")
+        ctk.CTkLabel(
+            runtime_inner,
+            text=f"File logs continue in {self.log_path.as_posix()}",
+            font=ctk.CTkFont(size=11),
+            text_color=self.theme.muted,
+        ).pack(anchor="w", pady=(2, 14))
+        self._status_message_label = ctk.CTkLabel(
+            runtime_inner,
+            text="Ready.",
+            font=ctk.CTkFont(size=12),
+            text_color=self.theme.text,
+        )
+        self._status_message_label.pack(anchor="w")
 
     def _build_brand(self, parent: ctk.CTkFrame) -> None:
         brand = ctk.CTkFrame(parent, fg_color="transparent")
@@ -587,9 +637,15 @@ class BotControlUi:
 
     def _on_mode_changed(self, value: str) -> None:
         self.bot_mode.set("home" if value == "Home village" else "builder")
+        self._sync_mode_controls()
 
     def _on_strategy_changed(self, value: str) -> None:
         self.home_troop_slots.set(int(value.split()[0]))
+
+    def _sync_mode_controls(self) -> None:
+        states = mode_dependent_control_states(self.bot_mode.get())
+        self._strategy_switch.configure(state=states["strategy"])
+        self._cycle_button.configure(state=states["account_cycle"])
 
     def start_bot(self) -> None:
         started = self.controller.start(bot_mode=self.bot_mode.get(), home_troop_slots=self.home_troop_slots.get())
@@ -597,6 +653,10 @@ class BotControlUi:
         self.refresh_status()
 
     def start_25_attacks(self) -> None:
+        if self.bot_mode.get() == "builder":
+            self.append_ui_log("25x3 account cycle is disabled for Builder base.")
+            self.refresh_status()
+            return
         started = self.controller.start(
             account_cycle=True,
             bot_mode="home",
@@ -662,12 +722,20 @@ class BotControlUi:
         self.refresh_status()
 
     def clear_log_view(self) -> None:
+        if not hasattr(self, "log_view"):
+            return
         self.log_view.configure(state="normal")
         self.log_view.delete("1.0", "end")
         self.log_view.configure(state="disabled")
-        self._tailer.reset()
+        if self._tailer is not None:
+            self._tailer.reset()
 
     def append_ui_log(self, text: str) -> None:
+        if not hasattr(self, "log_view"):
+            label = getattr(self, "_status_message_label", None)
+            if label is not None:
+                label.configure(text=text)
+            return
         self.log_view.configure(state="normal")
         self._insert_log_text(f"[UI] {text}\n", "ui")
         self.log_view.see("end")
@@ -751,6 +819,9 @@ class BotControlUi:
             self._status_label.configure(text="Stopped", text_color=self.theme.text)
 
     def _poll_log(self) -> None:
+        if self._tailer is None:
+            self._poll_status()
+            return
         chunks = self._tailer.drain()
         if chunks:
             self.log_view.configure(state="normal")
@@ -766,13 +837,18 @@ class BotControlUi:
             self._last_status_at = now
         self.root.after(self.LOG_POLL_MS, self._poll_log)
 
+    def _poll_status(self) -> None:
+        self.refresh_status()
+        self.root.after(self.STATUS_POLL_MS, self._poll_status)
+
     # ---------- lifecycle ----------
 
     def close(self) -> None:
         try:
             self.controller.stop()
         finally:
-            self._tailer.stop()
+            if self._tailer is not None:
+                self._tailer.stop()
             self.root.destroy()
 
     def run(self) -> None:
